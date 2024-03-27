@@ -1,0 +1,274 @@
+<?php
+
+
+class Ddb_Core {
+
+  
+	public static $prefix = 'ddb_';
+	
+  
+  public const ACTION_SAVE_OPTIONS = 'Save developer profiles';
+  /**
+   * Special value om developer profile indicating to use global profit ratio.
+   * 
+   * must be negative integer ( to distinguish it from legitimate custom profir ratios)
+   */
+  public const USE_GLOBAL_PROFIT_RATIO    = -1;
+  
+  public const PM__NONE                   = false;
+  public const PM__BANK_CHECK             = 'check';
+  public const PM__WISE                   = 'wise';
+  public const PM__TRANSFER_WIRE          = 'wire';
+  public const PM__TRANSFER_INTERNAL      = 'internal';
+  public const PM__TRANSFER_ACH           = 'ach';
+  public const PM__PAYPAL                 = 'paypal';
+  
+
+  public static $option_names = [
+    'include_notes_into_report'     => false,
+    'global_default_profit_ratio'   => 50
+  ];
+  
+	public static $default_option_values = [
+    'include_notes_into_report' => false
+	];
+    
+  /**
+   * List of settings used for each individual developer profile.
+   * 
+   * Format: [ setting name => default setting value ]
+   * 
+   * @var array
+   */
+	public static $dev_profile_settings = [
+    'profit_ratio'        => self::USE_GLOBAL_PROFIT_RATIO,
+    'paypal_address'      => '',
+    'payment_method'      => self::PM__BANK_CHECK,
+    'payment_currency'    => 'USD', // not reaaly used, but plugin could be expanded in the future
+    'additional_notes'    => ''
+	];
+
+  /**
+   * List of names for different payment methods
+   * @var array
+   */
+  public static $payment_methods_names = [
+    self::PM__NONE                        => 'Not set',
+    self::PM__BANK_CHECK                  => 'Bank Check',
+    self::PM__WISE                        => 'Wise',
+    self::PM__TRANSFER_WIRE               => 'Bank Transfer (Wire)',
+    self::PM__TRANSFER_INTERNAL           => 'Bank Transfer (Internal)',
+    self::PM__TRANSFER_ACH                => 'Bank Transfer ACH',
+    self::PM__PAYPAL                      => 'PayPal',
+  ];
+  
+  public static $profit_ratio_options = [
+    self::USE_GLOBAL_PROFIT_RATIO => 'Global', "0%" ,"1%", "2%", "3%", "4%", "5%", "6%", "7%", "8%", "9%", "10%", "11%", "12%", "13%", "14%", "15%", "16%", "17%", "18%", "19%", "20%", "21%", "22%", "23%", "24%", "25%", "26%", "27%", "28%", "29%", "30%", "31%", "32%", "33%", "34%", "35%", "36%", "37%", "38%", "39%", "40%", "41%", "42%", "43%", "44%", "45%", "46%", "47%", "48%", "49%", "50%", "51%", "52%", "53%", "54%", "55%", "56%", "57%", "58%", "59%", "60%", "61%", "62%", "63%", "64%", "65%", "66%", "67%", "68%", "69%", "70%", "71%", "72%", "73%", "74%", "75%", "76%", "77%", "78%", "79%", "80%", "81%", "82%", "83%", "84%", "85%", "86%", "87%", "88%", "89%", "90%", "91%", "92%", "93%", "94%", "95%", "96%", "97%", "98%", "99%", "100%"
+  ];
+    
+	public static $option_values = array();
+
+	public static function init() {
+		self::load_options();
+	}
+
+	public static function load_options() {
+		$stored_options = get_option( 'ddb_options', array() );
+    
+		foreach ( self::$option_names as $option_name ) {
+			if ( isset( $stored_options[$option_name] ) ) {
+				self::$option_values[$option_name] = $stored_options[$option_name];
+			}
+			else {
+				self::$option_values[$option_name] = self::$default_option_values[$option_name];
+			}
+		}
+	}
+
+	protected function display_messages( $error_messages, $messages ) {
+		$out = '';
+		if ( count( $error_messages ) ) {
+			foreach ( $error_messages as $message ) {
+				$out .= '<div class="notice-error settings-error notice is-dismissible"><p>'
+				. '<strong>'
+				. $message
+				. '</strong></p>'
+				. '<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>'
+				. '</div>';
+			}
+		}
+		if ( count( $messages ) ) {
+			foreach ( $messages as $message ) {
+				$out .= '<div class="notice-info notice is-dismissible"><p>'
+				. '<strong>'
+				. $message
+				. '</strong></p>'
+				. '<button type="button" class="notice-dismiss"><span class="screen-reader-text">Dismiss this notice.</span></button>'
+				. '</div>';
+			}
+		}
+
+		return $out;
+	}
+  
+  /**
+   * Returns HTML table rows each containing field, field name, and field description
+   * 
+   * @param array $field_set 
+   * @return string HTML
+   */
+	public static function render_fields_row( $field_set ) {
+    
+    $out = '';
+    
+		foreach ( $field_set as $field ) {
+			
+			$value = false;
+		
+			if ( isset( $_GET[$field['id']] ) ) {
+				$value = $_GET[$field['id']];
+			}
+			
+			if ( ( ! $value) && ( $field['type'] != 'checkbox' ) ) {
+				$value = $field['default'] ?? '';
+			}
+			
+			$out .= self::display_field_in_row( $field, $value );
+		}
+    
+    return $out;
+	}
+	
+	/**
+	 * Generates HTML code for input row in table
+	 * @param array $field
+	 * @param array $value
+   * @return string HTML
+	 */
+	public static function display_field_in_row($field, $value) {
+    
+		$label = $field['label']; // $label = __($field['label'], DDB_TEXT_DOMAIN);
+		
+		$value = htmlspecialchars($value);
+		$field['id'] = str_replace( '_', '-', $field['name'] );
+		
+		// 1. Make HTML for input
+		switch ($field['type']) {
+			case 'text':
+				$input_HTML = self::make_text_field( $field, $value );
+				break;
+			case 'dropdown':
+				$input_HTML = self::make_dropdown_field( $field, $value );
+				break;
+			case 'textarea':
+				$input_HTML = self::make_textarea_field( $field, $value );
+				break;
+			case 'checkbox':
+				$input_HTML = self::make_checkbox_field( $field, $value );
+				break;
+			case 'hidden':
+				$input_HTML = self::make_hidden_field( $field, $value );
+				break;
+			default:
+				$input_HTML = '[Unknown field type "' . $field['type'] . '" ]';
+		}
+		
+		
+		// 2. Make HTML for table cell
+		switch ( $field['type'] ) {
+			case 'hidden':
+				$table_cell_html = <<<EOT
+		<td class="col-hidden" style="display:none;" >{$input_HTML}</td>
+EOT;
+				break;
+			case 'text':
+			case 'textarea':
+			case 'checkbox':
+			default:
+				$table_cell_html = <<<EOT
+		<td>{$input_HTML}</td>
+EOT;
+				
+		}
+
+		return $table_cell_html;
+	}
+
+	/**
+	 * Generates HTML code for hidden input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_hidden_field($field, $value) {
+		$out = <<<EOT
+			<input type="hidden" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}">
+EOT;
+		return $out;
+	}	
+	
+	/**
+	 * Generates HTML code for text field input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_text_field($field, $value) {
+		$out = <<<EOT
+			<input type="text" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="ddb-text-field">
+EOT;
+		return $out;
+	}
+	
+	/**
+	 * Generates HTML code for textarea input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_textarea_field($field, $value) {
+		$out = <<<EOT
+			<textarea id="ddb_{$field['id']}" name="{$field['name']}" cols="{$field['cols']}" rows="{$field['rows']}" value="">{$value}</textarea>
+EOT;
+		return $out;
+	}
+	
+	/**
+	 * Generates HTML code for dropdown list input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_dropdown_field($field, $value) {
+		$out = '<select name="' . $field['name'] . '" id="ddb_' . $field['id'] . '">';
+
+		foreach ($field['options'] as $optionValue => $optionName) {
+			$selected = ((string)$value == (string)$optionValue) ? 'selected="selected"' : '';
+			$out .= '<option '. $selected .' value="' . $optionValue . '">' . $optionName .'</option>';
+		}
+		
+		$out .= '</select>';
+		return $out;
+	}
+	
+	
+	/**
+	 * Generates HTML code for checkbox 
+	 * @param array $field
+	 */
+	public static function make_checkbox_field($field, $value) {
+		$chkboxValue = $value ? 'checked="checked"' : '';
+		$out = <<<EOT
+			<input type="checkbox" id="ddb_{$field['id']}" name="{$field['name']}" {$chkboxValue} value="1" class="ddb-checkbox-field"/>
+EOT;
+		return $out;
+	}	
+	
+	public static function log($data) {
+
+		$filename = pathinfo( __FILE__, PATHINFO_DIRNAME ) . DIRECTORY_SEPARATOR .'log.txt';
+		if ( isset($_REQUEST['ddb_log_to_screen']) && $_REQUEST['ddb_log_to_screen'] == 1 ) {
+			echo( 'log::<pre>' . print_r($data, 1) . '</pre>' );
+		}
+		else {
+			file_put_contents($filename, date("Y-m-d H:i:s") . " | " . print_r($data,1) . "\r\n\r\n", FILE_APPEND);
+		}
+	}
+  
+}
