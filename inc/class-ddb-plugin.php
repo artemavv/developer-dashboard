@@ -26,10 +26,21 @@ class Ddb_Plugin extends Ddb_Core {
     
 		add_action( 'admin_menu', array( $this, 'add_page_to_menu' ) );
     
+    add_role('apd_developer', 'Product Developer', array(
+      'read'              => true,
+      'create_posts'      => false,
+      'edit_posts'        => false,
+      'edit_others_posts' => false,
+      'publish_posts'     => false,
+      'manage_categories' => false,
+    ));
+    
 	}
 
 	public function initialize() {
 		self::load_options();
+    
+    $this->register_shortcodes();
 	}
 
 	/* Add options on plugin activate */
@@ -39,6 +50,11 @@ class Ddb_Plugin extends Ddb_Core {
   
 	public static function install_plugin_options() {
 		add_option( 'ddb_options', self::$default_option_values );
+	}
+  
+  
+	public function register_shortcodes() {		
+    add_shortcode( 'developer_dashboard', array( 'Ddb_Frontend', 'render_developer_dashboard' ) );
 	}
   
   public function register_admin_styles_and_scripts() {
