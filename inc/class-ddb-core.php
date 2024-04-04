@@ -7,7 +7,7 @@ class Ddb_Core {
 	public static $prefix = 'ddb_';
 	
   
-  public const ACTION_SAVE_OPTIONS = 'Save developer profiles';
+  public const ACTION_SAVE_OPTIONS = 'Save settings';
   /**
    * Special value om developer profile indicating to use global profit ratio.
    * 
@@ -43,8 +43,10 @@ class Ddb_Core {
 	public static $dev_profile_settings = [
     'profit_ratio'        => self::USE_GLOBAL_PROFIT_RATIO,
     'paypal_address'      => '',
-    'payment_method'      => self::PM__BANK_CHECK,
-    'payment_currency'    => 'USD', // not reaaly used, but plugin could be expanded in the future
+    'user_account'        => 0,
+    'dropbox_folder_url'  => 0,
+    'payment_method'      => 0, //self::PM__BANK_CHECK,
+    'payment_currency'    => 'USD', // not used at the moment, but plugin could be expanded in the future
     'additional_notes'    => ''
 	];
 
@@ -75,12 +77,12 @@ class Ddb_Core {
 	public static function load_options() {
 		$stored_options = get_option( 'ddb_options', array() );
     
-		foreach ( self::$option_names as $option_name ) {
+		foreach ( self::$option_names as $option_name => $default_option_value ) {
 			if ( isset( $stored_options[$option_name] ) ) {
 				self::$option_values[$option_name] = $stored_options[$option_name];
 			}
 			else {
-				self::$option_values[$option_name] = self::$default_option_values[$option_name];
+				self::$option_values[$option_name] = $default_option_value;
 			}
 		}
 	}
@@ -112,6 +114,40 @@ class Ddb_Core {
 	}
   
   /**
+   * Finds corresponding developer taxonomy term linked to the provided user account.
+   * 
+   * @param integer $user_id
+   * @return object
+   */
+  public static function find_developer_term_by_user_id( int $user_id ) {
+  
+    global $wpdb;
+    $developer_term = false;
+    
+    $wp = $wpdb->prefix;
+    $query_sql  = $wpdb->prepare( "SELECT term_id FROM {$wp}termmeta AS tm WHERE tm.`meta_key` = 'user_account' AND tm.`meta_value` = %s ", $user_id );
+    
+    $sql_results = $wpdb->get_row($query_sql, ARRAY_A);
+
+    if ( is_array( $sql_results ) ) {
+      $term_id = $sql_results['term_id'];
+      $developer_term = get_term_by( 'term_id', $term_id, 'developer' );
+    }
+    
+    return $developer_term; 
+  }
+  
+  /**
+   * Gathers daily sales data for the specified developer 
+   * 
+   * @param integer $developer_id
+   * @return array
+   */
+  public static function get_developer_sales_data( int $developer_id ) {
+    // TODO 
+  }
+  
+  /**
    * Returns HTML table rows each containing field, field name, and field description
    * 
    * @param array $field_set 
@@ -123,11 +159,7 @@ class Ddb_Core {
     
 		foreach ( $field_set as $field ) {
 			
-			$value = false;
-		
-			if ( isset( $_GET[$field['id']] ) ) {
-				$value = $_GET[$field['id']];
-			}
+			$value = $field['value'];
 			
 			if ( ( ! $value) && ( $field['type'] != 'checkbox' ) ) {
 				$value = $field['default'] ?? '';
@@ -193,6 +225,123 @@ EOT;
 
 		return $table_cell_html;
 	}
+  
+  
+  
+	/**
+	 * Generates HTML code with TR rows containing specified field set
+   * 
+	 * @param array $field
+	 * @param mixed $value
+   * @return string HTML
+	 */
+	public static function display_field_set( $field_set ) {
+		foreach ( $field_set as $field ) {
+
+			$value = false;
+
+			if (isset($field['value'])) {
+				$value = $field['value'];
+			}
+      
+      $field['id'] = str_replace( '_', '-', $field['name'] );
+
+			if ( ( ! $value ) && ( !in_array( $field['type'], array( 'checkbox' ) ) ) ) {
+				$value = isset( $field['default'] ) ? $field['default'] : '';
+			}
+			echo self::make_field( $field, $value );
+		}
+	}
+	
+  
+	/**
+	 * Generates HTML code with TR row containing specified field input
+   * 
+	 * @param array $field
+	 * @param mixed $value
+   * @return string HTML
+	 */
+	public static function make_field( $field, $value ) {
+		$label = $field['label'];
+		
+		if ( ! isset( $field['style'] ) ) {
+			$field['style'] = '';
+		}
+		
+		// 1. Make HTML for input
+		switch ( $field['type'] ) {
+			case 'checkbox':
+				$input_html = self::make_checkbox_field( $field, $value );
+				break;
+			case 'text':
+				$input_html = self::make_text_field( $field, $value );
+				break;
+			case 'dropdown':
+				$input_html = self::make_dropdown_field( $field, $value );
+				break;
+			case 'textarea':
+				$input_html = self::make_textarea_field( $field, $value );
+				break;
+			case 'hidden':
+				$input_html = self::make_hidden_field( $field, $value );
+				break;
+			default:
+				$input_html = '[Unknown field type "' . $field['type'] . '" ]';
+		}
+		
+		if (isset($field['display'])) {
+			$display = $field['display'] ? 'table-row' : 'none';
+		}
+		else {
+			$display = 'table-row';
+		}
+		
+		// 2. Make HTML for table row
+		switch ($field['type']) {
+			case 'checkbox':
+				$table_row_html = <<<EOT
+		<tr style="display:{$display}" >
+			<td colspan="3" class="col-checkbox">{$input_html}<label for="ddb_{$field['id']}">$label</label></td>
+		</tr>
+EOT;
+				break;
+			case 'hidden':
+				$table_row_html = <<<EOT
+		<tr style="display:none" >
+			<td colspan="3" class="col-hidden">{$input_html}</td>
+		</tr>
+EOT;
+				break;
+			case 'dropdown':
+			case 'text':
+			case 'textarea':
+			default:
+				if (isset($field['description']) && $field['description']) {
+					$table_row_html = <<<EOT
+		<tr style="display:{$display}" >
+			<td class="col-name" style="{$field['style']}"><label for="ddb_{$field['id']}">$label</label></td>
+			<td class="col-input">{$input_html}</td>
+			<td class="col-info">
+				{$field['description']}
+			</td>
+		</tr>
+EOT;
+				}
+				else {
+				$table_row_html = <<<EOT
+		<tr style="display:{$display}" >
+			<td class="col-name" style="{$field['style']}"><label for="wppn_{$field['id']}">$label</label></td>
+			<td class="col-input">{$input_html}</td>
+			<td class="col-info"></td>
+		</tr>
+EOT;
+				}
+		}
+
+		
+		return $table_row_html;
+	}
+	
 
 	/**
 	 * Generates HTML code for hidden input

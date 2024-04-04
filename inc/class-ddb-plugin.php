@@ -87,17 +87,15 @@ class Ddb_Plugin extends Ddb_Core {
           $stored_options['global_default_profit_ratio'] = $_POST['global_default_profit_ratio'];
           
           update_option( 'ddb_options', $stored_options );
+          
+          foreach ( $_POST['dev_info'] as $dev_id => $dev_info ) {
+            self::update_developer_settings( $dev_id, $dev_info );
+          }
         break;
         case self::ACTION_CLEAR:
           self::erase_developer_sales();
         break;
-        case self::ACTION_CRONTEST:
-          self::execute_cron();
-        break;
-        case self::ACTION_RANDOM:
-          self::generate_random_sales();
-        break;
-
+        
       }
     }
   }
@@ -134,13 +132,13 @@ class Ddb_Plugin extends Ddb_Core {
    * Renders table row with fields to set developer profile settings
    * 
    * @param integer $dev_id
-   * @param array $dev_data
+   * @param array $dev_data info for that particular developer
    */
   public static function get_developer_fields( int $dev_id, array $dev_data ) {
     
     $field_set = array(
 			array(
-				'name'    => "profit_ratio[$dev_id]",
+				'name'    => "dev_info[$dev_id][profit_ratio]",
 				'type'    => 'dropdown',
 				'label'   => 'Profit ratio',
 				'default' => self::USE_GLOBAL_PROFIT_RATIO,
@@ -148,7 +146,7 @@ class Ddb_Plugin extends Ddb_Core {
         'value'   => $dev_data['profit_ratio'] ?? ''
 			),
       array(
-				'name'    => "payment_method[$dev_id]",
+				'name'    => "dev_info[$dev_id][payment_method]",
 				'type'    => 'dropdown',
 				'label'   => 'Payment method',
 				'default' => self::PM__NONE,
@@ -156,14 +154,28 @@ class Ddb_Plugin extends Ddb_Core {
         'value'   => $dev_data['payment_method'] ?? ''
 			),
       array(
-				'name'    => "paypal_address[$dev_id]",
+				'name'    => "dev_info[$dev_id][paypal_address]",
 				'type'    => 'text',
 				'label'   => 'Paypal address',
 				'default' => '',
         'value'   => $dev_data['paypal_address'] ?? ''
 			),
       array(
-				'name'    => "additional_notes[$dev_id]",
+				'name'    => "dev_info[$dev_id][user_account]",
+				'type'    => 'text',
+				'label'   => 'User Account',
+				'default' => '',
+        'value'   => $dev_data['user_account'] ?? ''
+			),
+      array(
+				'name'    => "dev_info[$dev_id][dropbox_folder_url]",
+				'type'    => 'text',
+				'label'   => 'Dropbox URL',
+				'default' => '',
+        'value'   => $dev_data['dropbox_folder_url'] ?? ''
+			),
+      array(
+				'name'    => "dev_info[$dev_id][additional_notes]",
 				'type'    => 'text',
 				'label'   => 'Additional notes',
 				'default' => '',
@@ -180,19 +192,15 @@ class Ddb_Plugin extends Ddb_Core {
   }
   
   
-  
-  // TODO finish
-  public function update_developer_settings( $term_id ) {
+  public static function update_developer_settings( $dev_id, $dev_data ) {
     
-    
-    // TODO check field name and contents
-    if ( isset( $_POST['developer_email'][$term_id] ) ) {
-        update_term_meta($term_id, 'developer_email', sanitize_text_field( $_POST['developer_email'] ) );
+    foreach ( self::$dev_profile_settings as $field_name => $default_value ) {
+      
+      if ( isset( $dev_data[ $field_name ] ) ) {
+        $new_value = $dev_data[ $field_name ];
+        update_term_meta($dev_id, $field_name, sanitize_text_field( $new_value ) );
+      }
     }
-    if (isset($_POST['developer_payout'])) {
-        update_term_meta($term_id, 'developer_method', $_POST['developer_payout']);
-    }
-    
     
   }
   
@@ -209,12 +217,44 @@ class Ddb_Plugin extends Ddb_Core {
     self::load_options();
     
     //echo(' TTT <pre>' . print_r( $this->developers, 1) . '</pre>');
-    //echo(' TTT $dev_sales<pre>' . print_r( $dev_sales, 1) . '</pre>');
+    
+    
+    $global_field_set = array(
+      array(
+				'name'        => "global_default_profit_ratio",
+				'type'        => 'text',
+				'label'       => 'Global profit ratio',
+				'default'     => '',
+        'value'       => self::$option_values['global_default_profit_ratio'],
+        'description' => 'Enter 0.05 for 5% profit ratio'
+			),
+      array(
+				'name'        => "include_notes_into_report",
+				'type'        => 'checkbox',
+				'label'       => 'Include notes into report',
+				'default'     => '',
+        'value'       => self::$option_values['include_notes_into_report'],
+			)
+		);
+    
+    
+    $a = do_shortcode('[developer_dashboard user_id="306439"]');
+    
+    echo $a;
     ?> 
 
-		<h1><?php esc_html_e('APD Developers profiles & settings', 'ddb'); ?></h1>
-    
     <form method="POST" >
+    
+      <h2><?php esc_html_e('Global Developer settings', 'ddb'); ?></h2>
+      
+      
+      <table class="ddb-global-table">
+        <tbody>
+          <?php self::display_field_set( $global_field_set ); ?>
+        </tbody>
+      </table>
+      
+      <h2><?php esc_html_e('APD Developers profiles & settings', 'ddb'); ?></h2>
       
       <table class="ddb-table">
         <thead>
@@ -244,7 +284,7 @@ class Ddb_Plugin extends Ddb_Core {
       </table>
       
       <p class="submit">  
-       <input type="submit" id="ddb-button-erase" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SAVE_OPTIONS; ?>" />
+       <input type="submit" id="ddb-button-save" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SAVE_OPTIONS; ?>" />
       </p>
       
     </form>
