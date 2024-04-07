@@ -26,7 +26,7 @@ class Ddb_Plugin extends Ddb_Core {
     
 		add_action( 'admin_menu', array( $this, 'add_page_to_menu' ) );
     
-    add_role('apd_developer', 'Product Developer', array(
+    add_role( self::DEV_ROLE_NAME, 'Product Developer', array(
       'read'              => true,
       'create_posts'      => false,
       'edit_posts'        => false,
@@ -238,7 +238,7 @@ class Ddb_Plugin extends Ddb_Core {
 		);
     
     
-    $a = do_shortcode('[developer_dashboard user_id="306439"]');
+    $a = do_shortcode('[developer_dashboard user_id="106996"]');
     
     echo $a;
     ?> 

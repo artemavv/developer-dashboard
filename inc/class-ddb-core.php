@@ -3,6 +3,11 @@
 
 class Ddb_Core {
 
+  public const CUTOFF_DATE = '2024-03-12';
+  
+  public const OPTION_NAME_FULL = 'developer_sales_full';
+  
+  public const DEV_ROLE_NAME = 'apd_developer';
   
 	public static $prefix = 'ddb_';
 	
@@ -144,8 +149,164 @@ class Ddb_Core {
    * @return array
    */
   public static function get_developer_sales_data( int $developer_id ) {
-    // TODO 
+
+		$arr_sales = array();
+    
+    $dev_sales = get_option( self::OPTION_NAME_FULL, array() );
+      
+    if ( is_array( $dev_sales ) && count( $dev_sales ) ) {
+      
+      $actual_dates = self::generate_last_n_days( 30 );
+      
+      foreach ( $dev_sales as $date => $day_sales ) {
+        if ( in_array( $date, $actual_dates ) && $date > self::CUTOFF_DATE ) {
+          
+          $developer_sales = $day_sales[ $developer_id ]['developer'] ?? '---';
+          $arr_sales[$date] = $developer_sales;
+        }
+      }
+    }
+    
+    return $arr_sales;
   }
+  
+  /**
+   * Gathers daily sales data for all products of the specified developer 
+   * 
+   * @param integer $developer_id
+   * @return array
+   */
+  public static function get_product_sales_data( int $developer_id ) {
+
+		$arr_sales = array();
+    
+    $dev_sales = get_option( self::OPTION_NAME_FULL, array() );
+      
+    if ( is_array( $dev_sales ) && count( $dev_sales ) ) {
+      
+      $actual_dates = self::generate_last_n_days( 30 );
+      
+      foreach ( $dev_sales as $date => $day_sales ) {
+        if ( in_array( $date, $actual_dates ) && $date > self::CUTOFF_DATE ) {
+          
+          $developer_sales = $day_sales[ $developer_id ]['products'] ?? false;
+          $arr_sales[$date] = $developer_sales;
+        }
+      }
+    }
+    
+    return $arr_sales;
+  }
+   
+  /**
+   * Prepares an array of date strings in Y-m-d format
+   * 
+   * [ '2024-03-29', '2024-03-28', '2024-03-27', '2024-03-26', ... ]
+   * 
+   * @param int $n
+   * @return array [ 'Y-m-d' ]
+   */
+  public static function generate_last_n_days( int $n ) {
+    
+    $days = array();
+    
+    for ($i = 0; $i < $n; $i++) {    
+        $days[] = date('Y-m-d', strtotime("-$i days") );
+    }
+    
+    return $days;
+  }
+  
+  public static function get_allowed_days_header() {
+    
+    $out = '';
+    // Loop through the last 30 days
+    for ($i = 0; $i < 30; $i++) {
+        
+        $date = date('Y-m-d', strtotime("-$i days") );
+        
+        if ( $date > self::CUTOFF_DATE ) { // restrict available dates
+          $out = "<th>$date</th>" . $out;
+        }
+    }
+    
+    return $out;
+  }
+  
+  public static function render_allowed_product_sales( $dev_sales, $dev_id, $product_id ) {
+    $out = '';
+    
+    $total_value = 0;
+    for ($i = 0; $i < 30; $i++) {
+        
+        $date = date('Y-m-d', strtotime("-$i days") );
+        
+        if ( $date > self::CUTOFF_DATE ) { // restrict available dates
+
+          $value = '--';
+
+          if ( isset( $dev_sales[$date]) && is_array($dev_sales[$date]) ) {
+            $value = $dev_sales[$date][$dev_id]['products'][$product_id] ?? '---' ;
+            $total_value += $dev_sales[$date][$dev_id]['products'][$product_id] ?? 0;
+          }
+        }
+        
+        $out = "<td>" . $value . "</td>" . $out;
+    }
+    
+    
+    $out = "<td class='total'>" . $total_value . "</td>" . $out;
+    
+    return $out;
+  }
+  
+  
+  /**
+   * Finds all active WooCommerce products for the specific developer
+   * 
+   * returns array[ product_id => product_name ]
+   * 
+   * @global object $wpdb
+   * @return array
+   */
+  public static function get_developer_products( string $developer_slug ) {
+    global $wpdb;
+    $wp = $wpdb->prefix;
+    
+    $query_sql = "SELECT p.ID AS pid, p.post_title AS name from {$wp}posts AS p
+        JOIN {$wp}term_relationships tr     ON p.ID = tr.object_id
+        JOIN {$wp}term_taxonomy tt          ON tr.term_taxonomy_id = tt.term_taxonomy_id
+        JOIN {$wp}terms t                   ON tt.term_id = t.term_id
+				WHERE p.`post_status` = 'publish' AND p.`post_type` = 'product'
+        AND tt.taxonomy = 'developer' AND t.slug = '{$developer_slug}' ";
+        
+    /*
+    SELECT p.ID, p.post_title, p.post_type
+FROM wp_posts p
+JOIN wp_term_relationships tr ON p.ID = tr.object_id
+JOIN wp_term_taxonomy tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+JOIN wp_terms t ON tt.term_id = t.term_id
+WHERE p.post_type = 'your_post_type'
+  AND tt.taxonomy = 'category'
+  AND t.slug IN ('category1', 'category2', 'category3');
+     * 
+     */
+        
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+
+    $developer_products = array();
+    
+    foreach ( $sql_results as $row ) {
+      
+      $product_id     = $row['pid'];
+      $product_name   = $row['name'];
+      
+      $developer_products[$product_id] = $product_name;
+    }
+    
+    return $developer_products;
+  }
+
   
   /**
    * Returns HTML table rows each containing field, field name, and field description
