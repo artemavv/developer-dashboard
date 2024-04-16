@@ -118,6 +118,75 @@ class Ddb_Core {
 		return $out;
 	}
   
+  public static function validate_input_and_generate_report( $start_date, $end_date ) {
+    
+    $out = ''; 
+    
+    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date );
+    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date );
+    
+    if ( $start_date && $end_date && $valid_start_date && $valid_end_date && $start_date <= $end_date ) {
+      $out = self::generate_html_report_for_developer( $start_date, $end_date );
+    }
+    else {
+      if ( ! $valid_start_date ) {
+        $out .= '<h3 style="color:red;">Start date must be in YYYY-MM-DD format</h3>';
+      }
+      if ( ! $valid_end_date ) {
+        $out .= '<h3 style="color:red;">End date must be in YYYY-MM-DD format</h3>';
+      }
+      if ( $start_date > $end_date ) {
+        $out .= '<h3 style="color:orange;">Please make sure that the start date is earlier or equal to the end date</h3>';
+      }
+    }
+    
+    return $out;
+  }
+  
+  public static function generate_html_report_for_developer( $start_date, $end_date ) {
+    
+    $html = '';
+    
+    $report_data = array();
+    
+    $developer_term = self::find_current_developer_term();
+    
+    if ( is_object( $developer_term ) ) {
+      $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $developer_term );
+    }
+    else {
+      $html = '<h3>No authorized</h3>';
+    }
+    
+    return $html;
+  }
+  
+  
+  /**
+   * Finds developer taxonomy term by its id
+   * 
+   * @param integer $developer_id
+   * @return object
+   */
+  public static function find_developer_term_by_id( int $developer_id ) {
+  
+    $developer_term = get_term_by( 'term_id', $developer_id, 'developer' );
+    return $developer_term; 
+  }
+  
+  /**
+   * Finds developer taxonomy term (if any) linked to the current user account.
+   * 
+   * @return object
+   */
+  public static function find_current_developer_term() {
+    
+    // TODO change to actual user id 
+    return self::find_developer_term_by_user_id( 106996 );
+    
+    //return self::find_developer_term_by_user_id( get_current_user_id() );
+  }
+  
   /**
    * Finds corresponding developer taxonomy term linked to the provided user account.
    * 
@@ -129,6 +198,10 @@ class Ddb_Core {
     global $wpdb;
     $developer_term = false;
     
+    if ( ! $user_id ) {
+      return false;
+    }
+    
     $wp = $wpdb->prefix;
     $query_sql  = $wpdb->prepare( "SELECT term_id FROM {$wp}termmeta AS tm WHERE tm.`meta_key` = 'user_account' AND tm.`meta_value` = %s ", $user_id );
     
@@ -136,7 +209,7 @@ class Ddb_Core {
 
     if ( is_array( $sql_results ) ) {
       $term_id = $sql_results['term_id'];
-      $developer_term = get_term_by( 'term_id', $term_id, 'developer' );
+      $developer_term = self::find_developer_term_by_id( $term_id );
     }
     
     return $developer_term; 
@@ -148,7 +221,7 @@ class Ddb_Core {
    * @param integer $developer_id
    * @return array
    */
-  public static function get_developer_sales_data( int $developer_id ) {
+  public static function get_developer_sales_data( int $developer_id, array $allowed_days ) {
 
 		$arr_sales = array();
     
@@ -156,13 +229,14 @@ class Ddb_Core {
       
     if ( is_array( $dev_sales ) && count( $dev_sales ) ) {
       
-      $actual_dates = self::generate_last_n_days( 30 );
-      
-      foreach ( $dev_sales as $date => $day_sales ) {
-        if ( in_array( $date, $actual_dates ) && $date > self::CUTOFF_DATE ) {
-          
+      foreach ( $allowed_days as $date ) {
+        if (array_key_exists( $date, $dev_sales ) ) {
+          $day_sales = $dev_sales[$date];
           $developer_sales = $day_sales[ $developer_id ]['developer'] ?? '---';
           $arr_sales[$date] = $developer_sales;
+        }
+        else {
+          $arr_sales[$date] = false;
         }
       }
     }
@@ -176,7 +250,7 @@ class Ddb_Core {
    * @param integer $developer_id
    * @return array
    */
-  public static function get_product_sales_data( int $developer_id ) {
+  public static function get_product_sales_data( int $developer_id, array $allowed_days ) {
 
 		$arr_sales = array();
     
@@ -184,20 +258,44 @@ class Ddb_Core {
       
     if ( is_array( $dev_sales ) && count( $dev_sales ) ) {
       
-      $actual_dates = self::generate_last_n_days( 30 );
-      
-      foreach ( $dev_sales as $date => $day_sales ) {
-        if ( in_array( $date, $actual_dates ) && $date > self::CUTOFF_DATE ) {
-          
+      foreach ( $allowed_days as $date) {
+        if (array_key_exists( $date, $dev_sales ) ) {
+          $day_sales = $dev_sales[$date];
           $developer_sales = $day_sales[ $developer_id ]['products'] ?? false;
           $arr_sales[$date] = $developer_sales;
+        }
+        else {
+          $arr_sales[$date] = false;
         }
       }
     }
     
     return $arr_sales;
   }
-   
+  
+  
+  /**
+   * Prepares an array of date strings in Y-m-d format
+   * 
+   * 
+   * @param int $n
+   * @return array [ 'Y-m-d' ]
+   */
+  public static function generate_allowed_days() {
+    
+    $days = self::generate_last_n_days( 30 );
+    
+    $allowed_days = array(); 
+    
+    foreach ( $days as $date ) {
+      if ( $date > self::CUTOFF_DATE ) { // restrict available dates
+        $allowed_days[] = $date;
+      }
+    }
+    
+    return $allowed_days;
+  }
+  
   /**
    * Prepares an array of date strings in Y-m-d format
    * 
@@ -211,47 +309,37 @@ class Ddb_Core {
     $days = array();
     
     for ($i = 0; $i < $n; $i++) {    
-        $days[] = date('Y-m-d', strtotime("-$i days") );
+      $days[] = date('Y-m-d', strtotime("-$i days") );
     }
     
     return $days;
   }
   
-  public static function get_allowed_days_header() {
+  public static function get_days_header( $allowed_days ) {
     
     $out = '';
-    // Loop through the last 30 days
-    for ($i = 0; $i < 30; $i++) {
-        
-        $date = date('Y-m-d', strtotime("-$i days") );
-        
-        if ( $date > self::CUTOFF_DATE ) { // restrict available dates
-          $out = "<th>$date</th>" . $out;
-        }
+  
+    foreach ( $allowed_days as $date ) {
+      $out = "<th>$date</th>" . $out;  
     }
     
     return $out;
   }
   
-  public static function render_allowed_product_sales( $dev_sales, $dev_id, $product_id ) {
+  public static function render_product_sales( $dev_sales, $product_id, $allowed_days ) {
     $out = '';
     
     $total_value = 0;
-    for ($i = 0; $i < 30; $i++) {
+    foreach ( $allowed_days as $date ) {
         
-        $date = date('Y-m-d', strtotime("-$i days") );
-        
-        if ( $date > self::CUTOFF_DATE ) { // restrict available dates
+      $value = '--';
 
-          $value = '--';
+      if ( isset( $dev_sales[$date]) && is_array($dev_sales[$date]) ) {
+        $value = $dev_sales[$date][$product_id] ?? '---' ;
+        $total_value += $dev_sales[$date][$product_id] ?? 0;
+      }
 
-          if ( isset( $dev_sales[$date]) && is_array($dev_sales[$date]) ) {
-            $value = $dev_sales[$date][$dev_id]['products'][$product_id] ?? '---' ;
-            $total_value += $dev_sales[$date][$dev_id]['products'][$product_id] ?? 0;
-          }
-        }
-        
-        $out = "<td>" . $value . "</td>" . $out;
+      $out = "<td class='$date' data='" . print_r( $dev_sales[$date], 1) . "' >" . $value . "</td>" . $out;
     }
     
     

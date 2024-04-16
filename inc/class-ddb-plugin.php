@@ -92,10 +92,11 @@ class Ddb_Plugin extends Ddb_Core {
             self::update_developer_settings( $dev_id, $dev_info );
           }
         break;
+        /*
         case self::ACTION_CLEAR:
           self::erase_developer_sales();
         break;
-        
+        */
       }
     }
   }
