@@ -99,25 +99,33 @@ class Ddb_Report_Generator extends Ddb_Core {
    */
   public static function get_single_order_info( int $order_id, object $developer_term ) {
   
-    $order_items_data = self::get_developer_items_in_order( $order_id, $developer_term );
-  
-    $order_lines = array();
+    $order_lines = false;
     
-    foreach ( $order_items_data as $product ) {
-      
-      $order_line = array(
-        'first_name'      => $order->get_billing_first_name(),
-        'last_name'       => $order->get_billing_last_name(),
-        'email'           => $order->get_billing_email(),
-        'address'         => $order->get_formatted_billing_address(),
-        'date'            => $order->get_date_completed(),
-        'product_name'    => $product['name'],
-        'price'           => $product['price_before_coupon'],
-        'after_coupon'    => $product['price_after_coupon'],
-        'license_code'    => $product['license_code']
-      );
-      
-      $order_lines[] = $order_line;
+    $order = new WC_Order( $order_id );
+
+    if ( is_object( $order ) ) {
+      $order_items_data = self::get_developer_items_in_order( $order, $developer_term );
+
+      //echo('order_items_data<pre>');print_r($order_items_data);echo('</pre>');
+
+      $order_lines = array();
+
+      foreach ( $order_items_data as $product ) {
+
+        $order_line = array(
+          'first_name'      => $order->get_billing_first_name(),
+          'last_name'       => $order->get_billing_last_name(),
+          'email'           => $order->get_billing_email(),
+          'address'         => $order->get_formatted_billing_address(),
+          'date'            => $order->get_date_completed(),
+          'product_name'    => $product['name'],
+          'price'           => $product['price_before_coupon'],
+          'after_coupon'    => $product['price_after_coupon'],
+          'license_code'    => trim($product['license_code'])
+        );
+
+        $order_lines[] = $order_line;
+      }
     }
 
     return $order_lines;
@@ -140,7 +148,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     );
       
     $developer_condition = $wpdb->prepare( "im.`meta_key` = 'developer_name' AND im.`meta_value` = %s ", $developer_name );
-    $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` = '0.00' OR pm.`meta_value` = '0' )";
+    $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` != '0.00' AND pm.`meta_value` != '0' )";
     
     $query_sql = "SELECT p.ID from {$wp}posts AS p
       LEFT JOIN `{$wp}postmeta` AS pm on p.`ID` = pm.`post_id`
@@ -153,6 +161,11 @@ class Ddb_Report_Generator extends Ddb_Core {
       ORDER BY p.post_date DESC";
     
     $ids = array();
+    
+    
+    
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+    
     foreach ($sql_results as $row) {
       $ids[] = $row['ID'];
     }
@@ -165,82 +178,77 @@ class Ddb_Report_Generator extends Ddb_Core {
    * 
    * NOTE: deal products are excluded!
    */
-  public static function get_developer_items_in_order( int $order_id, object $developer_term ) {
+  public static function get_developer_items_in_order( object $order, object $developer_term ) {
     
     $results = array();     
-    $order = new WC_Order( $order_id );
-  
-    if ( is_object( $order ) ) {
     
-      $items = $order->get_items();
+    $items = $order->get_items();
 
-      foreach ( $items as $key => $item ) {
+    foreach ( $items as $key => $item ) {
 
-        $item_id = $item->get_product_id();
-        $is_shop_product = get_post_meta($item_id, '_product_type_single', true);
+      $item_id = $item->get_product_id();
+      $is_shop_product = get_post_meta($item_id, '_product_type_single', true);
 
-      
-        $item_result = array();
 
-        if ( has_term( $developer_term->term_id, 'developer', $item_id ) && $is_shop_product == 'yes' ) {
-          
-          $item_result['product_id']              = $item_id;
-          $item_result['name']                    = $item['name'];
-          $item_result['price_after_coupon']      = $order->get_item_total( $item, false, true );
-          $item_result['price_before_coupon']     = $order->get_item_subtotal( $item, false, true );
-          $item_result['license_code']            = false;
-          $item_result['is_deal_product']         = false;
-          $item_result['is_shop_product']         = false;
-          
-          $item_meta = $item->get_meta_data();
-          
-          foreach ( $item_meta as $meta_item ) {
+      $item_result = array();
 
-            if ( $meta_item->key == 'bigdeal' && $meta_item->value == 1 ) {
-              $item_result['is_deal_product'] = true;
-            }
+      if ( has_term( $developer_term->term_id, 'developer', $item_id ) && $is_shop_product == 'yes' ) {
 
-            if ($meta_item->key == 'shop_product' && $meta_item->value == 1) {
-              $item_result['is_shop_product'] = true;
-            }
+        $item_result['product_id']              = $item_id;
+        $item_result['name']                    = $item['name'];
+        $item_result['price_after_coupon']      = $order->get_item_total( $item, false, true );
+        $item_result['price_before_coupon']     = $order->get_item_subtotal( $item, false, true );
+        $item_result['license_code']            = false;
+        $item_result['is_deal_product']         = false;
+        $item_result['is_shop_product']         = false;
 
-            if (($meta_item->key == 'Coupon Code(s)') or ($meta_item->key == 'License Code(s)') ) {
-              $codes = $meta_item->value;
+        $item_meta = $item->get_meta_data();
 
-              if ( is_array($codes) ) {
-                $item_result['license_code'] = implode(', ', $codes);
-              } else {
-                $item_result['license_code'] = $codes;
-              }
-            }
-            
-            if ( ($meta_item->key == 'developer_name') ) {
-              $item_result['developer_name'] = $meta_item->value;
-            }
+        foreach ( $item_meta as $meta_item ) {
 
-          } // endforeach
-          
-          if ( $item_result['developer_name'] != $developer_term->name ) {
-            continue;
+          if ( $meta_item->key == 'bigdeal' && $meta_item->value == 1 ) {
+            $item_result['is_deal_product'] = true;
           }
-          
-          if ( $item_result['is_deal_product'] ) {
-            continue;
+
+          if ($meta_item->key == 'shop_product' && $meta_item->value == 1) {
+            $item_result['is_shop_product'] = true;
           }
-          
-          if ( ! $item_result['is_shop_product'] ) {
-            continue;
+
+          if (($meta_item->key == 'Coupon Code(s)') or ($meta_item->key == 'License Code(s)') ) {
+            $codes = $meta_item->value;
+
+            if ( is_array($codes) ) {
+              $item_result['license_code'] = implode(', ', $codes);
+            } else {
+              $item_result['license_code'] = $codes;
+            }
           }
-          
-          self::log(['$item_result', $item_result ] );
+
+          if ( ($meta_item->key == 'developer_name') ) {
+            $item_result['developer_name'] = $meta_item->value;
+          }
+
+        } // endforeach
+
+        if ( $item_result['developer_name'] != $developer_term->name ) {
+          continue;
+        }
+
+        if ( $item_result['is_deal_product'] ) {
+          continue;
+        }
+
+        if ( ! $item_result['is_shop_product'] ) {
+          continue;
+        }
+
+        self::log(['$item_result', $item_result ] );
+
+        $results[] = $item_result;
+      } // end if correct product developer
+
+    } // end for each item
       
-          $results[] = $item_result;
-        } // end if correct product developer
-        
-      } // end for each item
-      
-    } // end if order exists
-    
     self::log(['$results', $results ] );
     
     return $results;

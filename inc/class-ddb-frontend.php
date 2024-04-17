@@ -221,7 +221,7 @@ class Ddb_Frontend extends Ddb_Core {
       ob_end_clean();
     }
     else {
-      $out = '[No active WooCommerce products found for this developer]';
+      $out = '[No active WooCommerce products found for ' . $developer_term->name . ']';
     }
     
     return $out;

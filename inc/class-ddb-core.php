@@ -155,7 +155,7 @@ class Ddb_Core {
       $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $developer_term );
     }
     else {
-      $html = '<h3>No authorized</h3>';
+      $html = '<h3>Not authorized</h3>';
     }
     
     return $html;
@@ -182,7 +182,7 @@ class Ddb_Core {
   public static function find_current_developer_term() {
     
     // TODO change to actual user id 
-    return self::find_developer_term_by_user_id( 106996 );
+    return self::find_developer_term_by_user_id( 108252 );
     
     //return self::find_developer_term_by_user_id( get_current_user_id() );
   }
