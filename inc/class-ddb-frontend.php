@@ -114,6 +114,8 @@ class Ddb_Frontend extends Ddb_Core {
     
     //echo(' TTT <pre>' . print_r( $this->developers, 1) . '</pre>');
     
+    $date_start = $_POST['report_date_start'] ?? self::get_earliest_allowed_date();
+    $date_end = $_POST['report_date_end'] ?? self::get_today_date();
     
     $report_field_set = array(
       array(
@@ -121,7 +123,7 @@ class Ddb_Frontend extends Ddb_Core {
 				'type'        => 'text',
 				'label'       => 'Start date',
 				'default'     => '',
-        'value'       => self::get_earliest_allowed_date(),
+        'value'       => $date_start,
         'description' => 'Enter date in YYYY-MM-DD format'
 			),
       array(
@@ -129,7 +131,7 @@ class Ddb_Frontend extends Ddb_Core {
 				'type'        => 'text',
 				'label'       => 'End date',
 				'default'     => '',
-        'value'       => self::get_today_date(),
+        'value'       => $date_end,
         'description' => 'Enter date in YYYY-MM-DD format'
 			),
 		);

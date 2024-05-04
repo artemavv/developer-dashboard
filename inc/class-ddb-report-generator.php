@@ -14,6 +14,8 @@ class Ddb_Report_Generator extends Ddb_Core {
     else {
       ob_start();
 
+      $total = 0; 
+      
       $columns = array(
         'first_name'      => 'First name',
         'last_name'       => 'Last name',
@@ -21,34 +23,33 @@ class Ddb_Report_Generator extends Ddb_Core {
         'address'         => 'Address',
         'date'            => 'Order date',
         'product_name'    => 'Product',
-        'price'           => 'Price',
-        'after_coupon'    => 'Discount',
+        'price'           => 'Full Price',
+        'after_coupon'    => 'Discounted price',
         'license_code'    => 'License code'
       );
       ?> 
 
       <h3 style='color:green;'>Orders found from <?php echo $start_date; ?> to <?php echo $end_date; ?></h3>
 
-      <table>
+      <table class="ddb-report-table">
         <thead>
           <?php foreach ( $columns as $key => $name): ?>
-            <th>
-              <?php echo $name; ?>
-            </th>
+            <th><?php echo $name; ?></th>
           <?php endforeach; ?>
         </thead>
         <tbody>
           <?php foreach ( $report_lines as $line ): ?>
-          <tr>
-            <?php foreach ( $columns as $key => $name): ?>
-              <td>
-                <?php echo $line[$key]; ?>
-              </td>
-            <?php endforeach; ?>
-          </tr>
+            <tr>
+              <?php foreach ( $columns as $key => $name): ?>
+                <td><?php echo $line[$key]; ?></td>
+              <?php endforeach; ?>
+            </tr>
+            <?php $total += $line['after_coupon']; ?>
           <?php endforeach; ?>
         </tbody>
       </table>
+      
+      <h4>Total sales: <?php echo $total; ?></h4>
       <?php 
       $out = ob_get_contents();
       ob_end_clean();
@@ -112,12 +113,25 @@ class Ddb_Report_Generator extends Ddb_Core {
 
       foreach ( $order_items_data as $product ) {
 
+        $completed_date = $order->get_date_completed();
+        $date_formatted = '?';
+        
+        if ( $completed_date instanceof WC_DateTime ) {
+            $date = $completed_date->getTimestamp();
+        } elseif ( ! is_int( $completed_date ) ) {
+            $date = strtotime( $completed_date );
+        }
+        
+        if ( ! empty( $date ) ) {
+            $date_formatted = date_i18n( 'Y-m-d', $date );
+        }
+        
         $order_line = array(
           'first_name'      => $order->get_billing_first_name(),
           'last_name'       => $order->get_billing_last_name(),
           'email'           => $order->get_billing_email(),
           'address'         => $order->get_formatted_billing_address(),
-          'date'            => $order->get_date_completed(),
+          'date'            => $date_formatted,
           'product_name'    => $product['name'],
           'price'           => $product['price_before_coupon'],
           'after_coupon'    => $product['price_after_coupon'],
