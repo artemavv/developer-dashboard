@@ -13,6 +13,9 @@ class Ddb_Core {
 	
   
   public const ACTION_SAVE_OPTIONS = 'Save settings';
+  public const ACTION_PAYPAL_PAYOUT = 'PayPal payout report';
+  public const ACTION_GENERAL_PAYOUT = 'General payout report';
+  
   /**
    * Special value om developer profile indicating to use global profit ratio.
    * 
@@ -152,7 +155,16 @@ class Ddb_Core {
     $developer_term = self::find_current_developer_term();
     
     if ( is_object( $developer_term ) ) {
-      $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $developer_term );
+      
+      $report_lines = Ddb_Report_Generator::get_orders_info( $start_date, $end_date, $developer_term );
+      
+      if ( ! count( $report_lines ) ) {
+        $html = "<h3 style='color:darkred;'>No sales found in the specified date range ( from $start_date to $end_date )</h3>";
+      }
+      else {
+        $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $report_lines );
+        $html .= Ddb_Report_Generator::generate_csv_to_be_copied( $report_lines );
+      }
     }
     else {
       $html = '<h3>Not authorized</h3>';
@@ -180,11 +192,7 @@ class Ddb_Core {
    * @return object
    */
   public static function find_current_developer_term() {
-    
-    // TODO change to actual user id 
-    return self::find_developer_term_by_user_id( 108252 );
-    
-    //return self::find_developer_term_by_user_id( get_current_user_id() );
+    return self::find_developer_term_by_user_id( get_current_user_id() );
   }
   
   /**
@@ -320,7 +328,7 @@ class Ddb_Core {
     $out = '';
   
     foreach ( $allowed_days as $date ) {
-      $out = "<th>$date</th>" . $out;  
+      $out = "<th class='vertical'>$date</th>" . $out;  
     }
     
     return $out;

@@ -1,0 +1,31 @@
+
+#developer-dashboard {
+  padding: 20px;
+}
+
+#developer-dashboard #table-wrapper {
+  width: 100%;
+  overflow: scroll;
+}
+
+#developer-dashboard .sales-table {
+  border: 3px solid #e3e3e3;
+  max-width: 500px;
+}
+
+#developer-dashboard td.total {
+  font-weight: bold;
+}
+
+#developer-dashboard td.product_name {
+  min-width: 250px;
+}
+
+#developer-dashboard th.vertical {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+#developer-dashboard td.date {
+  text-wrap: nowrap;
+}

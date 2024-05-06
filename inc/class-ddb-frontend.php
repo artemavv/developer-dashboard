@@ -5,6 +5,25 @@ class Ddb_Frontend extends Ddb_Core {
 
   public const ACTION_GENERATE_REPORT = 'Generate sales report';
   
+  
+  public static function display_developer_content( $atts, $content = '' ) {
+    
+    $out = '';
+    
+    $user = wp_get_current_user();
+
+    // Check whether that user exists and is actually a Product Developer
+    if ( $user && is_array( $user->roles ) && in_array( self::DEV_ROLE_NAME, $user->roles ) ) {
+      $developer_term = self::find_developer_term_by_user_id( $user_id );
+
+      if ( is_object( $developer_term ) ) {
+        return do_shortcode( $content ); // show content placed inside the shortcode
+      }
+    }
+    
+    return $out;
+  }
+  
   /**
    * Handler for "developer_dashboard" shortcode
    * 
@@ -16,7 +35,9 @@ class Ddb_Frontend extends Ddb_Core {
    */
   public static function render_developer_dashboard( $atts ) {
     
-    $out = '';
+    $out = '<h3>Not authorized</h3>';
+    
+    $developer_term = false;
     
     $input_fields = [
       'user_id'      => 0,
@@ -26,14 +47,17 @@ class Ddb_Frontend extends Ddb_Core {
     extract( shortcode_atts( $input_fields, $atts ) );
     
     if ( $user_id != 0 ) {
-      
       $user = get_user_by( 'id', $user_id );
-      
-      // Check whether that user exists and is actually a Product Developer
-      if ( $user && is_array( $user->roles ) && in_array( self::DEV_ROLE_NAME, $user->roles ) ) {
-        $developer_term = self::find_developer_term_by_user_id( $user_id );
-      }
     }
+    else {
+      $user = wp_get_current_user();
+    }
+    
+    // Check whether that user exists and is actually a Product Developer
+    if ( $user && is_array( $user->roles ) && in_array( self::DEV_ROLE_NAME, $user->roles ) ) {
+      $developer_term = self::find_developer_term_by_user_id( $user->ID );
+    }
+    
     
     if ( is_object( $developer_term ) ) {
 
@@ -43,17 +67,21 @@ class Ddb_Frontend extends Ddb_Core {
 
       //echo(' TTT product_sales  <pre>' . print_r( $product_sales, 1) . '</pre>');
 
-      $out = '<H2>Total daily sales for "' . $developer_term->name . '"</h2>';
+      $out = '<div id="developer-dashboard">';
+        
+      $out .= '<H2>Total daily sales for "' . $developer_term->name . '"</h2>';
       
       $out .= self::render_total_daily_sales( $dev_sales );
 
       $out .= '<H2>Daily product sales for "' . $developer_term->name . '"</h2>';
       
-      $out .= self::render_product_daily_sales( $developer_term, $product_sales, $allowed_days );
+      $out .= '<div id="table-wrapper" >' . self::render_product_daily_sales( $developer_term, $product_sales, $allowed_days ) . '</div>';
       
       $out .= '<H2>Generate sales report</h2>';
       
       $out .= self::render_report_form( $developer_term );
+      
+      $out .= '</div>';
     }
     
     return $out;
@@ -165,7 +193,7 @@ class Ddb_Frontend extends Ddb_Core {
     ob_start();
     ?>
     
-    <table>
+    <table class="sales-table">
       <thead>
         <th>Day</th>
         <th>Sales</th>
@@ -207,7 +235,7 @@ class Ddb_Frontend extends Ddb_Core {
           <tbody>
             <?php foreach ( $developer_products as $product_id => $product_name ): ?>
                 <tr>
-                  <td><?php echo $product_name; ?></td>
+                  <td class="product-name"><?php echo $product_name; ?></td>
                   <?php 
                   
                     // $dev_sales_row contains TD cells for total and for all of $allowed_days

@@ -21,9 +21,10 @@ class Ddb_Plugin extends Ddb_Core {
 		add_action( 'plugins_loaded', array( $this, 'initialize'), 10 );
 	  
     if ( is_admin() ) {
-      add_action('admin_enqueue_scripts', array($this, 'register_admin_styles_and_scripts'));
+      add_action('admin_enqueue_scripts', array($this, 'register_admin_styles_and_scripts') );
     }
     
+    add_action( 'wp_enqueue_scripts', array($this, 'register_frontend_scripts_when_shortcode_present') );
 		add_action( 'admin_menu', array( $this, 'add_page_to_menu' ) );
     
     add_role( self::DEV_ROLE_NAME, 'Product Developer', array(
@@ -55,6 +56,7 @@ class Ddb_Plugin extends Ddb_Core {
   
 	public function register_shortcodes() {		
     add_shortcode( 'developer_dashboard', array( 'Ddb_Frontend', 'render_developer_dashboard' ) );
+    add_shortcode( 'display_content_for_developers_only', array( 'Ddb_Frontend', 'display_developer_content' ) );
 	}
   
   public function register_admin_styles_and_scripts() {
@@ -62,12 +64,21 @@ class Ddb_Plugin extends Ddb_Core {
     wp_enqueue_style( 'ddb-admin', $file_src, array(), DDB_VERSION );
   }
   
+  public function register_frontend_scripts_when_shortcode_present() {
+    global $post;
+    
+    if ( true ) { //if ( is_a( $post, 'WP_Post' ) && has_shortcode( $post->post_content, 'developer_dashboard') ) {
+      $file_src = plugins_url( 'css/ddb-front.css', $this->plugin_root );
+      wp_enqueue_style( 'ddb-front', $file_src, array(), DDB_VERSION );
+    }
+  }
+
     
 	public function add_page_to_menu() {
     
 		add_management_page(
-			__( 'Developer Payout Settings' ),          // page title.
-			__( 'Developer Payout Settings' ),          // menu title.
+			__( 'Developer Payout Dashboard' ),          // page title.
+			__( 'Developer Payout Dashboard' ),          // menu title.
 			'manage_options',
 			'ddb-settings',			                // menu slug.
 			array( $this, 'render_settings_page' )   // callback.
@@ -92,11 +103,15 @@ class Ddb_Plugin extends Ddb_Core {
             self::update_developer_settings( $dev_id, $dev_info );
           }
         break;
-        /*
-        case self::ACTION_CLEAR:
-          self::erase_developer_sales();
+        
+        case self::ACTION_PAYPAL_PAYOUT:
+          self::generate_payroll( 'paypal' );
         break;
-        */
+      
+        case self::ACTION_GENERAL_PAYOUT:
+          self::generate_payroll( 'general' );
+        break;
+        
       }
     }
   }
@@ -205,6 +220,10 @@ class Ddb_Plugin extends Ddb_Core {
     
   }
   
+  public function generate_payroll( $payroll_type ) {
+    
+  }
+  
 	public function render_settings_page() {
     
     $action_results = '';
@@ -216,9 +235,13 @@ class Ddb_Plugin extends Ddb_Core {
     $this->developers = self::get_developer_list_and_settings();
     
     self::load_options();
+   
+    $this->render_settings_form();
     
-    //echo(' TTT <pre>' . print_r( $this->developers, 1) . '</pre>');
-    
+    $this->render_payout_form();
+  }
+  
+  public function render_settings_form() {
     
     $global_field_set = array(
       array(
@@ -246,7 +269,7 @@ class Ddb_Plugin extends Ddb_Core {
 
     <form method="POST" >
     
-      <h2><?php esc_html_e('Global Developer settings', 'ddb'); ?></h2>
+      <h2><?php esc_html_e('Developer Payout Dashboard', 'ddb'); ?></h2>
       
       
       <table class="ddb-global-table">
