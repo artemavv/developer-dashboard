@@ -103,15 +103,12 @@ class Ddb_Plugin extends Ddb_Core {
             self::update_developer_settings( $dev_id, $dev_info );
           }
         break;
-        
-        case self::ACTION_PAYPAL_PAYOUT:
-          self::generate_payroll( 'paypal' );
+       /* 
+        case self::ACTION_GENERATE_PAYOUT:
+          self::generate_payroll( $_POST['report_type'], $_POST['source_timestamp'] );
         break;
-      
-        case self::ACTION_GENERAL_PAYOUT:
-          self::generate_payroll( 'general' );
-        break;
-        
+        * 
+        */
       }
     }
   }
@@ -220,9 +217,97 @@ class Ddb_Plugin extends Ddb_Core {
     
   }
   
-  public function generate_payroll( $payroll_type ) {
+  /**
+   * 
+   * option_name to search for in "wp_options" is in the format of 'aff_cron_results_XXXX', where XXX if $payroll_timestamp
+   * 
+   * $payout_category either 'paypal' or 'others'
+   */
+  public static function generate_payout_report() {
     
+    $payout_category = $_GET['payout_category'];
+    
+    if ( in_array( $payout_category, array( 'paypal', 'others', 'summary' ) ) ) {
+      
+      $payroll_timestamp = $_GET['source_timestamp'];
+
+      $filename = 'payout_report_' . $payout_category . '_' . date('Y-m-d', $payroll_timestamp ) . '.xls';
+
+      self::load_options();
+      
+      $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        
+      $report_data = get_option( 'aff_cron_results_' . $payroll_timestamp );
+      
+      $developer_settings = self::get_developer_settings_by_payout_category( $payout_category );
+
+      if ( $report_data && $developer_settings ) {
+        if ( $payout_category == self::PM__PAYPAL ) {
+          Ddb_Report_Generator::generate_paypal_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+        }
+        else if ( $payout_category == 'others' ) {
+          Ddb_Report_Generator::generate_general_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+        }
+        else {
+          Ddb_Report_Generator::generate_summary_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+        }
+      }
+    }
   }
+  
+  /**
+   * Finds developer payout settings for all developers that have specific payment type.
+   * 
+   * If $payout_category == 'summary', then find all developers.
+   * If $payout_category == 'paypal', then find all developers who is paid via Paypal. 
+   * Otherwise, find all developers that are paid via other methods (not Paypal).
+   * 
+   * @global object $wpdb
+   * @param string $payout_category
+   * @return array
+   */
+  public static function get_developer_settings_by_payout_category( string $payout_category ) {
+        
+    global $wpdb;
+    $wp = $wpdb->prefix;
+    
+    $developers = array();
+
+    if ( $payout_category == self::PM__PAYPAL ) { // find only those developers that are paid via paypal
+      $query_sql = $wpdb->prepare( "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` = '%s' ", $payout_category );
+    }
+    elseif ( $payout_category == 'summary' )  { // find all developers
+      $query_sql = "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` != '' ";
+    }
+    else { // find those developers that are paid via anything but paypal
+      $query_sql = $wpdb->prepare( "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` != '%s' AND `meta_value` != '0' ", self::PM__PAYPAL );
+    }
+
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+
+    foreach ( $sql_results as $row ) {
+      $developer_id = $row['term_id'];
+
+      $developer_data = array();
+
+      foreach ( self::$dev_profile_settings as $setting_name => $default_value ) {
+        $developer_term = get_term( $developer_id, 'developer' );
+        
+        if ( $developer_term ) { // extra check to be sure that is it really a developer taxonomy item
+          $value =  get_term_meta( $developer_id, $setting_name, /* single? */ true );
+          $developer_data[ $setting_name ] = $value ?: $default_value; 
+        }
+        
+        //$developer_data['name'] = $developer_term->name;
+      }
+
+      $developers[$developer_id] = $developer_data;
+
+    }
+    
+    return $developers;
+  }
+  
   
 	public function render_settings_page() {
     
@@ -236,14 +321,13 @@ class Ddb_Plugin extends Ddb_Core {
     
     self::load_options();
    
+    $this->render_payout_report_form();
     $this->render_settings_form();
-    
-    $this->render_payout_form();
   }
   
   public function render_settings_form() {
     
-    $global_field_set = array(
+    $global_settings_field_set = array(
       array(
 				'name'        => "global_default_profit_ratio",
 				'type'        => 'text',
@@ -261,10 +345,6 @@ class Ddb_Plugin extends Ddb_Core {
 			)
 		);
     
-    
-    $a = do_shortcode('[developer_dashboard user_id="106996"]');
-    
-    echo $a;
     ?> 
 
     <form method="POST" >
@@ -274,7 +354,7 @@ class Ddb_Plugin extends Ddb_Core {
       
       <table class="ddb-global-table">
         <tbody>
-          <?php self::display_field_set( $global_field_set ); ?>
+          <?php self::display_field_set( $global_settings_field_set ); ?>
         </tbody>
       </table>
       
@@ -309,6 +389,65 @@ class Ddb_Plugin extends Ddb_Core {
       
       <p class="submit">  
        <input type="submit" id="ddb-button-save" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SAVE_OPTIONS; ?>" />
+      </p>
+      
+    </form>
+    <?php 
+  }
+  
+  public function render_payout_report_form() {
+    
+    $available_summaries = self::get_available_report_summaries();
+    
+    $summary_names = array();
+    
+    foreach ( $available_summaries as $timestamp => $summary ) {
+      
+      $start = $summary['start_date'] ?? '';
+      $end = $summary['end_date'] ?? '';
+      $gen_date = date('Y-m-d H:i', $timestamp );
+      $summary_names[$timestamp] = " From $start to $end (generated on $gen_date)";
+    }
+    
+    $payout_field_set = array(
+      array(
+				'name'        => "payout_category",
+				'type'        => 'dropdown',
+				'label'       => 'Payout report type',
+				'default'     => 'paypal',
+        'options'     => array(
+          'paypal'  => 'Paypal payment method',
+          'others'  => 'All other payment methods',
+          'summary' => 'Summary for all developers'
+        ),
+        'description' => ''
+			),
+      array(
+				'name'        => "source_timestamp",
+				'type'        => 'dropdown',
+				'label'       => 'Select report batch to use',
+				'default'     => '',
+        'options'     => $summary_names,
+        'value'       => ''
+			)
+		);
+    
+    ?> 
+
+    <form method="GET" >
+    
+      <h2><?php esc_html_e('Generate Payout Reports', 'ddb'); ?></h2>
+      
+      
+      <table class="ddb-global-table">
+        <tbody>
+          <?php self::display_field_set( $payout_field_set ); ?>
+        </tbody>
+      </table>
+    
+      
+      <p class="submit">  
+       <input type="submit" id="ddb-button-save" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_PAYOUT; ?>" />
       </p>
       
     </form>

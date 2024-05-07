@@ -13,8 +13,7 @@ class Ddb_Core {
 	
   
   public const ACTION_SAVE_OPTIONS = 'Save settings';
-  public const ACTION_PAYPAL_PAYOUT = 'PayPal payout report';
-  public const ACTION_GENERAL_PAYOUT = 'General payout report';
+  public const ACTION_GENERATE_PAYOUT = 'Generate payout report';
   
   /**
    * Special value om developer profile indicating to use global profit ratio.
@@ -31,7 +30,6 @@ class Ddb_Core {
   public const PM__TRANSFER_ACH           = 'ach';
   public const PM__PAYPAL                 = 'paypal';
   
-
   public static $option_names = [
     'include_notes_into_report'     => false,
     'global_default_profit_ratio'   => 50
@@ -356,6 +354,36 @@ class Ddb_Core {
     return $out;
   }
   
+  /**
+   * Finds all previously saved report summary entries in the database
+   * 
+   * Here is a separate plugin 'Woocommerce Affiliate Reports' which saves report summary data in 'wp_options' table
+   * with option_key in the format 'aff_cron_results_XXXX', where XXX is a timestamp.
+   * 
+   */
+  public static function get_available_report_summaries() {
+    global $wpdb;
+    $wp = $wpdb->prefix;
+    
+    $summary_key_prefix = 'aff_cron_results_';
+    
+    $query_sql = "SELECT o.`option_name` as name, o.`option_value` AS value from {$wp}options AS o
+        WHERE o.`option_name` LIKE '%{$summary_key_prefix}%' ORDER BY o.`option_name` DESC ";
+        
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+
+    $report_summaries = array();
+    
+    foreach ( $sql_results as $row ) {
+      
+      $summary_name     = str_replace( $summary_key_prefix, '', $row['name'] );
+      $summary_content   = unserialize($row['value']);
+      
+      $report_summaries[$summary_name] = $summary_content;
+    }
+    
+    return $report_summaries;
+  }
   
   /**
    * Finds all active WooCommerce products for the specific developer

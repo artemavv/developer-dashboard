@@ -290,4 +290,153 @@ class Ddb_Report_Generator extends Ddb_Core {
     return $results;
   }
 
+  
+  	
+	/**
+	 * Send headers for browser to download the file
+	 */
+	private static function echo_headers( $filename ) {
+		header("Pragma: public");
+		header("Expires: 0");
+		header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
+		header("Cache-Control: private", false);
+		header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+		header("Content-Disposition: attachment;Filename=" . $filename . "");
+		header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . ' GMT');
+	}
+  
+  public static function generate_general_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+    
+    self::echo_headers( $filename );
+    
+    $report_body = ''; 
+    
+    foreach ( $developer_settings as $dev_id => $developer ) {
+        
+      $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
+      
+      if ( $dev_data_from_report ) {
+        $dev_name = $dev_data_from_report['name'];
+        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+
+        $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
+        $payment_method = self::$payment_methods_names[ $developer_settings[$dev_id]['payment_method'] ] ?: '';
+
+        $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
+
+        $payout = round( $developer_share * $earnings, 2);
+
+        $report_line = "<td>$dev_name</td>"
+          . "<td>$earnings</td>"
+          . "<td>" . ( $developer_share * 100 )  . "</td>"
+          . "<td>$payout</td>"
+          . "<td>$payment_method</td>";
+
+        $report_body .= '<tr>' . $report_line . '</tr>';
+      }
+    }
+    
+    echo('<html><table>
+      <thead>
+      <tr>
+        <th>Developer name</th>
+        <th>Gross earnings</th>
+        <th>Profit ratio, %</th>
+        <th>Total developer profits</th>
+        <th>Payment method</th>
+      </tr></thead>
+      <tbody>' . $report_body . '</tbody></table></html>');
+    die();
+  }
+  
+  public static function generate_paypal_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+    
+    self::echo_headers( $filename );
+    
+    $report_body = ''; 
+    
+    //foreach ( $report_data['devs'] as $dev_id => $dev_data ) {
+    foreach ( $developer_settings as $dev_id => $developer ) {
+        
+      $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
+      
+      if ( $dev_data_from_report ) {
+        $dev_name = $dev_data_from_report['name'];
+        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+
+        $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
+        $paypal_address = $developer['paypal_address'] ?? '';
+
+        $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
+
+        $payout = round( $developer_share * $earnings, 2);
+
+        $report_line = "<td>$dev_name</td>"
+          . "<td>$earnings</td>"
+          . "<td>" . ( $developer_share * 100 )  . "</td>"
+          . "<td>$payout</td>"
+          . "<td>$paypal_address</td>"
+          . "<td>USD</td>"; // this probably will be customized later
+
+        $report_body .= '<tr>' . $report_line . '</tr>';
+      }
+    }
+    
+    echo('<html><table>
+      <thead>
+      <tr>
+        <th>Developer name</th>
+        <th>Gross earnings</th>
+        <th>Profit ratio, %</th>
+        <th>Total developer profits</th>
+        <th>Paypal address</th>
+        <th>Currency</th>
+      </tr></thead>
+      <tbody>' . $report_body . '</tbody></table></html>');
+    die();
+  }
+  
+  
+  
+  public static function generate_summary_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+    
+    self::echo_headers( $filename );
+    
+    $report_body = ''; 
+    
+    //foreach ( $report_data['devs'] as $dev_id => $dev_data ) {
+    foreach ( $developer_settings as $dev_id => $developer ) {
+        
+      $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
+      
+      if ( $dev_data_from_report && is_array($developer) && count($developer) ) {
+        
+        $dev_name = $dev_data_from_report['name'];
+        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+
+        $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
+        $paypal_address = $developer['paypal_address'] ?? '';
+
+        $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
+
+        $payout = round( $developer_share * $earnings, 2);
+
+        $report_line = "<td>$dev_name</td>"
+          . "<td>" . ( $developer_share * 100 )  . "</td>"
+          . "<td>$payout</td>";
+
+        $report_body .= '<tr>' . $report_line . '</tr>';
+      }
+    }
+    
+    echo('<html><table>
+      <thead>
+      <tr>
+        <th>Developer name</th>
+        <th>Profit ratio, %</th>
+        <th>Total profits, USD</th>
+      </tr></thead>
+      <tbody>' . $report_body . '</tbody></table></html>');
+    die();
+  }
 }
