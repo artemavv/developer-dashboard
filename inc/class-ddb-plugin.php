@@ -231,7 +231,8 @@ class Ddb_Plugin extends Ddb_Core {
       
       $payroll_timestamp = $_GET['source_timestamp'];
 
-      $filename = 'payout_report_' . $payout_category . '_' . date('Y-m-d', $payroll_timestamp ) . '.xls';
+      $filename = 'payout_report_' . $payout_category . '_' . date('Y-m-d', $payroll_timestamp );
+      $format = 'csv';
 
       self::load_options();
       
@@ -243,13 +244,13 @@ class Ddb_Plugin extends Ddb_Core {
 
       if ( $report_data && $developer_settings ) {
         if ( $payout_category == self::PM__PAYPAL ) {
-          Ddb_Report_Generator::generate_paypal_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+          Ddb_Report_Generator::generate_paypal_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio, $format );
         }
         else if ( $payout_category == 'others' ) {
-          Ddb_Report_Generator::generate_general_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+          Ddb_Report_Generator::generate_general_payroll_report( $filename, $report_data, $developer_settings, $global_profit_ratio, $format );
         }
         else {
-          Ddb_Report_Generator::generate_summary_report( $filename, $report_data, $developer_settings, $global_profit_ratio );
+          Ddb_Report_Generator::generate_summary_report( $filename, $report_data, $developer_settings, $global_profit_ratio, $format );
         }
       }
     }

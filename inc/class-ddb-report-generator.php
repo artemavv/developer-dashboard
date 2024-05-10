@@ -295,21 +295,46 @@ class Ddb_Report_Generator extends Ddb_Core {
 	/**
 	 * Send headers for browser to download the file
 	 */
-	private static function echo_headers( $filename ) {
+	private static function echo_headers( $filename, $file_type = 'csv' ) {
+    
+    switch ( $file_type ) {
+      case 'html':
+        $content_type = 'text/html';
+        $extension = 'html';
+      break;
+      case 'xls':
+        $content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        $extension = 'xls';
+      break;
+      case 'csv':
+        $content_type = 'text/csv';
+        $extension = 'csv';
+      break;
+    }
 		header("Pragma: public");
 		header("Expires: 0");
 		header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
 		header("Cache-Control: private", false);
-		header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-		header("Content-Disposition: attachment;Filename=" . $filename . "");
+		header("Content-Type: $content_type");
+    header("Content-Disposition: attachment;Filename={$filename}.{$extension}");
 		header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . ' GMT');
 	}
   
-  public static function generate_general_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+  /**
+   * Lists developers who are paid by some non-paypal methos
+   * 
+   * @param string $filename
+   * @param array $report_data
+   * @param array $developer_settings
+   * @param float $global_profit_ratio
+   * @param type $format
+   */
+  public static function generate_general_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = 'csv' ) {
     
-    self::echo_headers( $filename );
+    self::echo_headers( $filename, $format );
     
-    $report_body = ''; 
+
+    $report_lines = array(); 
     
     foreach ( $developer_settings as $dev_id => $developer ) {
         
@@ -326,36 +351,40 @@ class Ddb_Report_Generator extends Ddb_Core {
 
         $payout = round( $developer_share * $earnings, 2);
 
-        $report_line = "<td>$dev_name</td>"
-          . "<td>$earnings</td>"
-          . "<td>" . ( $developer_share * 100 )  . "</td>"
-          . "<td>$payout</td>"
-          . "<td>$payment_method</td>";
-
-        $report_body .= '<tr>' . $report_line . '</tr>';
+        $developer_share *= 100; // to show percents instead of fraction
+        
+        $report_lines[] =  [$dev_name, $payout, $payment_method];
+        
       }
     }
     
-    echo('<html><table>
-      <thead>
-      <tr>
-        <th>Developer name</th>
-        <th>Gross earnings</th>
-        <th>Profit ratio, %</th>
-        <th>Total developer profits</th>
-        <th>Payment method</th>
-      </tr></thead>
-      <tbody>' . $report_body . '</tbody></table></html>');
+    $report_headers = array(
+      'dev_name'        => 'Developer name',
+      'payout'          => 'Total developer profits',
+      'payment_method'  => 'Payment method'
+    );
+    
+    $formatted_report = self::format_report_data( $report_headers, $report_lines, $format );
+    
+    echo $formatted_report;
     die();
   }
   
-  public static function generate_paypal_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+  /**
+   * Lists developers who are paid via PayPal
+   * 
+   * @param string $filename
+   * @param array $report_data
+   * @param array $developer_settings
+   * @param float $global_profit_ratio
+   * @param string $format
+   */
+  public static function generate_paypal_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, string $format = 'html' ) {
     
     self::echo_headers( $filename );
     
-    $report_body = ''; 
+    $report_lines = array();
     
-    //foreach ( $report_data['devs'] as $dev_id => $dev_data ) {
     foreach ( $developer_settings as $dev_id => $developer ) {
         
       $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
@@ -371,38 +400,38 @@ class Ddb_Report_Generator extends Ddb_Core {
 
         $payout = round( $developer_share * $earnings, 2);
 
-        $report_line = "<td>$dev_name</td>"
-          . "<td>$earnings</td>"
-          . "<td>" . ( $developer_share * 100 )  . "</td>"
-          . "<td>$payout</td>"
-          . "<td>$paypal_address</td>"
-          . "<td>USD</td>"; // this probably will be customized later
-
-        $report_body .= '<tr>' . $report_line . '</tr>';
+        $report_line = [ $dev_name, $payout, $paypal_address, 'USD' ];
+        
+        $report_lines[] = $report_line;
       }
     }
     
-    echo('<html><table>
-      <thead>
-      <tr>
-        <th>Developer name</th>
-        <th>Gross earnings</th>
-        <th>Profit ratio, %</th>
-        <th>Total developer profits</th>
-        <th>Paypal address</th>
-        <th>Currency</th>
-      </tr></thead>
-      <tbody>' . $report_body . '</tbody></table></html>');
+    $report_headers = array(
+      'dev_name'        => 'Developer name',
+      'payout'          => 'Total developer profits',
+      'payment_method'  => 'Paypal address',
+      'currency'        => 'Currency'
+    );
+    
+    $formatted_report = self::format_report_data( $report_headers, $report_lines, $format );
+    echo $formatted_report;
     die();
   }
   
   
-  
-  public static function generate_summary_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio ) {
+  /**
+   * Lists all developers and their profits
+   * 
+   * @param string $filename
+   * @param array $report_data
+   * @param array $developer_settings
+   * @param float $global_profit_ratioList
+   */
+  public static function generate_summary_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = 'csv' ) {
     
     self::echo_headers( $filename );
     
-    $report_body = ''; 
+    $report_lines = array();
     
     //foreach ( $report_data['devs'] as $dev_id => $dev_data ) {
     foreach ( $developer_settings as $dev_id => $developer ) {
@@ -421,22 +450,88 @@ class Ddb_Report_Generator extends Ddb_Core {
 
         $payout = round( $developer_share * $earnings, 2);
 
-        $report_line = "<td>$dev_name</td>"
-          . "<td>" . ( $developer_share * 100 )  . "</td>"
-          . "<td>$payout</td>";
-
-        $report_body .= '<tr>' . $report_line . '</tr>';
+        $report_line = [ $dev_name, $payout ];
+        
+        $report_lines[] = $report_line;
       }
     }
     
-    echo('<html><table>
-      <thead>
-      <tr>
-        <th>Developer name</th>
-        <th>Profit ratio, %</th>
-        <th>Total profits, USD</th>
-      </tr></thead>
-      <tbody>' . $report_body . '</tbody></table></html>');
+    $report_headers = array(
+      'dev_name'        => 'Developer name',
+      'payout'          => 'Total profits (USD)'
+    );
+    
+    $formatted_report = self::format_report_data( $report_headers, $report_lines, $format );
+    echo $formatted_report;
+    
     die();
   }
+  
+    
+  public static function format_report_data( $headers, $data, $format = 'csv' ) {
+  
+    $report = '';
+    switch ( $format ) {
+      case 'html':
+        
+        $report_headers .= '<thead>';
+        foreach ( $headers as $value ) {
+          $report_headers .= "<th>$value</th>";
+        }
+        $report_headers .= '</head>';
+        
+        $report_data = '';
+        foreach ( $data as $row ) {
+          $report_data .= '<tr>';
+          foreach ( $row as $value ) {
+            $report_data .= "<td>$value</td>";
+          }
+          $report_data .= '</tr>';
+        }
+        
+        $report = '<html><body><table>' . $report_headers . '<tbody>' . $report_data . '</tbody></table></body></html>';
+      break;
+      case 'csv':
+        $report_headers = self::make_csv_line( $headers );
+        $report_data = ''; 
+        
+        foreach ( $data as $row ) {
+          $report_data .= self::make_csv_line( $row );
+        }
+        
+        $report = $report_headers . $report_data;
+    }
+    return $report;
+  }
+  
+  public static function make_report_line( $data, $format = 'csv' ) {
+  
+    $line = '';
+    switch ( $format ) {
+      case 'html':
+        $line .= '<tr>';
+        foreach ( $data as $value ) {
+          $line .= "<td>$value</td>";
+        }
+        $line .= '</tr>';
+      break;
+      case 'csv':
+        $line = self::make_csv_line( $data );
+    }
+    return $line;
+  }
+  
+  // code taken from https://www.php.net/manual/en/function.fputcsv.php
+  public static function make_csv_line( array $fields) : string {
+
+    
+    $f = fopen('php://memory', 'r+');
+    if (fputcsv($f, $fields) === false) {
+        return false;
+    }
+    rewind($f);
+    $csv_line = stream_get_contents($f);
+    return rtrim($csv_line) . "\r\n";
+  }
+  
 }
