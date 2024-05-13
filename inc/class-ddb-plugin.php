@@ -57,6 +57,7 @@ class Ddb_Plugin extends Ddb_Core {
 	public function register_shortcodes() {		
     add_shortcode( 'developer_dashboard', array( 'Ddb_Frontend', 'render_developer_dashboard' ) );
     add_shortcode( 'display_content_for_developers_only', array( 'Ddb_Frontend', 'display_developer_content' ) );
+    add_shortcode( 'display_content_for_affiliates_only', array( 'Ddb_Frontend', 'display_affiliate_content' ) );
 	}
   
   public function register_admin_styles_and_scripts() {

@@ -54,6 +54,34 @@ class Ddb_Report_Generator extends Ddb_Core {
     return $out; 
   }
   
+  /* deprecated
+  public static function generate_report_for_developer( $start_date, $end_date ) {
+    
+    $html = '';
+    
+    $report_data = array();
+    
+    $developer_term = self::find_current_developer_term();
+    
+    if ( is_object( $developer_term ) ) {
+      
+      $report_lines = self::get_orders_info( $start_date, $end_date, $developer_term );
+      
+      if ( ! count( $report_lines ) ) {
+        $html = "<h3 style='color:darkred;'>No sales found in the specified date range ( from $start_date to $end_date )</h3>";
+      }
+      else {
+        $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $report_lines );
+        $html .= Ddb_Report_Generator::generate_csv_to_be_copied( $report_lines );
+      }
+    }
+    else {
+      $html = '<h3>Not authorized</h3>';
+    }
+    
+    return $html;
+  }
+  */
   
   public static function generate_csv_to_be_copied( $report_lines ) {
     

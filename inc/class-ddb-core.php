@@ -5,6 +5,7 @@ class Ddb_Core {
 
   public const CUTOFF_DATE = '2024-03-12';
   
+  // this data is provided by 'developer-top-sellers' plugin
   public const OPTION_NAME_FULL = 'developer_sales_full';
   
   public const DEV_ROLE_NAME = 'apd_developer';
@@ -119,58 +120,6 @@ class Ddb_Core {
 		return $out;
 	}
   
-  public static function validate_input_and_generate_report( $start_date, $end_date ) {
-    
-    $out = ''; 
-    
-    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date );
-    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date );
-    
-    if ( $start_date && $end_date && $valid_start_date && $valid_end_date && $start_date <= $end_date ) {
-      $out = self::generate_html_report_for_developer( $start_date, $end_date );
-    }
-    else {
-      if ( ! $valid_start_date ) {
-        $out .= '<h3 style="color:red;">Start date must be in YYYY-MM-DD format</h3>';
-      }
-      if ( ! $valid_end_date ) {
-        $out .= '<h3 style="color:red;">End date must be in YYYY-MM-DD format</h3>';
-      }
-      if ( $start_date > $end_date ) {
-        $out .= '<h3 style="color:orange;">Please make sure that the start date is earlier or equal to the end date</h3>';
-      }
-    }
-    
-    return $out;
-  }
-  
-  public static function generate_html_report_for_developer( $start_date, $end_date ) {
-    
-    $html = '';
-    
-    $report_data = array();
-    
-    $developer_term = self::find_current_developer_term();
-    
-    if ( is_object( $developer_term ) ) {
-      
-      $report_lines = Ddb_Report_Generator::get_orders_info( $start_date, $end_date, $developer_term );
-      
-      if ( ! count( $report_lines ) ) {
-        $html = "<h3 style='color:darkred;'>No sales found in the specified date range ( from $start_date to $end_date )</h3>";
-      }
-      else {
-        $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $report_lines );
-        $html .= Ddb_Report_Generator::generate_csv_to_be_copied( $report_lines );
-      }
-    }
-    else {
-      $html = '<h3>Not authorized</h3>';
-    }
-    
-    return $html;
-  }
-  
   
   /**
    * Finds developer taxonomy term by its id
@@ -219,6 +168,47 @@ class Ddb_Core {
     }
     
     return $developer_term; 
+  }
+  
+  /**
+   * Check the current user - does he have developoer role?
+   * 
+   * @return boolean
+   */
+  public static function is_authorized_developer() {
+    
+    $developer_term = self::find_current_developer_term();
+    
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+      return false;
+    }
+    return false;
+  }
+  
+  /**
+   * Checks user affiliate status which is set by WP Affiliates plugin
+   * 
+   * @param integer $user_id
+   * @return boolean
+   */
+  public static function check_if_user_affiliate( int $user_id ) {
+  
+    global $wpdb;
+    
+    if ( ! $user_id ) {
+      return false;
+    }
+    
+    $wp = $wpdb->prefix;
+    $query_sql  = $wpdb->prepare( "SELECT count(*) as count FROM `{$wp}affiliate_wp_affiliates` AS af WHERE af.`status` = 'active' AND af.`user_id` = %s ", $user_id );
+    
+    $sql_results = $wpdb->get_row($query_sql, ARRAY_A);
+
+    if ( is_array( $sql_results ) && $sql_results['count'] > 0 ) {
+      return true;
+    }
+    
+    return false;
   }
   
   /**
@@ -345,7 +335,7 @@ class Ddb_Core {
         $total_value += $dev_sales[$date][$product_id] ?? 0;
       }
 
-      $out = "<td class='$date' data='" . print_r( $dev_sales[$date], 1) . "' >" . $value . "</td>" . $out;
+      $out = "<td class='$date'>" . $value . "</td>" . $out;
     }
     
     
