@@ -177,6 +177,7 @@ class Ddb_Report_Generator extends Ddb_Core {
         }
         
         $order_line = array(
+          'order_id'        => $order_id,
           'first_name'      => $order->get_billing_first_name(),
           'last_name'       => $order->get_billing_last_name(),
           'email'           => $order->get_billing_email(),
@@ -187,6 +188,8 @@ class Ddb_Report_Generator extends Ddb_Core {
           'after_coupon'    => $product['price_after_coupon'],
           'license_code'    => trim($product['license_code'])
         );
+        
+        $order_line['full_name'] = $order_line['first_name'] . ' ' . $order_line['last_name'];
 
         $order_lines[] = $order_line;
       }

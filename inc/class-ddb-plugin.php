@@ -282,7 +282,7 @@ class Ddb_Plugin extends Ddb_Core {
       $query_sql = "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` != '' ";
     }
     else { // find those developers that are paid via anything but paypal
-      $query_sql = $wpdb->prepare( "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` != '%s' AND `meta_value` != '0' ", self::PM__PAYPAL );
+      $query_sql = $wpdb->prepare( "SELECT term_id FROM `{$wp}termmeta` WHERE `meta_key` = 'payment_method' AND `meta_value` != '%s' ", self::PM__PAYPAL );
     }
 
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );

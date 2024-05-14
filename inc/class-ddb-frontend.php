@@ -99,17 +99,17 @@ class Ddb_Frontend extends Ddb_Core {
       $allowed_days = self::generate_allowed_days();
 
       $out = '<div id="developer-dashboard">';
-        
+      /*  
       $out .= "<H2>Total daily sales for {$developer_term->name} </h2>";
       
       $dev_sales = self::get_developer_sales_data( $developer_term->term_id, $allowed_days );
       $out .= self::render_total_daily_sales( $dev_sales );
-
-      $out .= '<H2>Completed orders</h2>';
+*/
+      $out .= '<H2>List of completed orders</h2>';
       
       $out .= self::render_orders_report_form_and_results( $developer_term );
       
-      $out .= '<H2>Generate sales report</h2>';
+      $out .= '<H2>List of sales</h2>';
       
       $out .= self::render_sales_report_form_and_results( $developer_term );
       
@@ -137,11 +137,11 @@ class Ddb_Frontend extends Ddb_Core {
     return date('Y-m-d');
   }
   
-  public static function do_action() {
+  public static function do_action_if_triggered( $action ) {
     
     $out = '';
     
-    if ( filter_input( INPUT_POST, 'ddb-button' ) ) {
+    if ( filter_input( INPUT_POST, 'ddb-button' ) === $action ) {
       
       $developer_term = self::find_current_developer_term();
     
@@ -150,7 +150,7 @@ class Ddb_Frontend extends Ddb_Core {
         $start_date = filter_input( INPUT_POST, self::FIELD_DATE_START ) ?: false;
         $end_date = filter_input( INPUT_POST, self::FIELD_DATE_END ) ?: false;
 
-        switch ( filter_input( INPUT_POST, 'ddb-button' ) ) {
+        switch ( $action ) {
           case self::ACTION_GENERATE_SALES_REPORT:
             $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'sales' );
           break;
@@ -188,8 +188,10 @@ class Ddb_Frontend extends Ddb_Core {
         
         $report_data = Ddb_Report_Generator::get_orders_info( $start_date, $end_date, $developer_term );
        
-        if ( is_array($report_data) && count( $report_data) ) {
-          $out = self::render_orders_list( $report_data );
+        if ( is_array($report_data) && count($report_data) ) {
+          
+          $out = "<h3>Found $report_type of products from {$developer_term->name} from $start_date to $end_date</h3>";
+          $out .= self::render_orders_list( $report_data, $report_type );
         }
         else {
           $out = "<h3 style='color:darkred;'>No $report_type found in the specified date range ( from $start_date to $end_date )</h3>";
@@ -212,18 +214,10 @@ class Ddb_Frontend extends Ddb_Core {
   }
   
   public static function render_orders_report_form_and_results( object $developer_term ) {
-   
-    $out = "<H3>Orders for products of {$developer_term->name} from $start_date to $end_date</h3>";
     
     ob_start();
     
-    $action_results = '';
-    
-    if ( filter_input( INPUT_POST, 'ddb-button' ) ) {
-			$action_results = self::do_action(); // generate orders report if requested by a user
-		}
-		
-    //echo(' TTT <pre>' . print_r( $this->developers, 1) . '</pre>');
+		$action_results = self::do_action_if_triggered( self::ACTION_GENERATE_ORDERS_REPORT ); // generate orders report if requested by a user
     
     $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-7 days") ) );
     $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
@@ -275,15 +269,10 @@ class Ddb_Frontend extends Ddb_Core {
     
     ob_start();
     
+    $action_results = self::do_action_if_triggered( self::ACTION_GENERATE_SALES_REPORT ); // generate orders report if requested by a user
     
-    $action_results = '';
-    
-    if ( filter_input( INPUT_POST,'ddb-button' ) ) {
-			$action_results = self::do_action(); // generate sales report if requested by a user
-		}
-		
-    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? self::get_earliest_allowed_date() );
-    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
+    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?: self::get_earliest_allowed_date() );
+    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?: self::get_today_date() );
     
     $report_field_set = array(
       array(
@@ -376,8 +365,8 @@ class Ddb_Frontend extends Ddb_Core {
         'address'         => 'Address',
         'date'            => 'Order date',
         'product_name'    => 'Product',
-        'price'           => 'Full Price',
-        'after_coupon'    => 'Discounted price',
+        //'price'           => 'Full Price',
+        'after_coupon'    => 'Paid price',
         'license_code'    => 'License code'
       );
     }
@@ -395,7 +384,9 @@ class Ddb_Frontend extends Ddb_Core {
     $total = 0;
     
     if ( is_array( $developer_sales ) && count( $developer_sales ) ) {
-        
+      
+      //echo('<pre>'); echo print_r( $developer_sales, 1 ); echo('</pre>');
+      
       ob_start();
       ?>
 
@@ -406,24 +397,9 @@ class Ddb_Frontend extends Ddb_Core {
           <?php endforeach; ?>
         </thead>
         <tbody>
-          <?php foreach ( $developer_sales as $order_id => $order_data ): ?>
+          <?php foreach ( $developer_sales as $order_data ): ?>
             <tr>
-              
-              <?php if ( $report_type == 'sales' ) { // render table line with sale info
-              
-                $full_order_data = array_merge( 
-                  $order_data, 
-                  array( 
-                    'order_id' => $order_id,
-                    'full_name' => $order_data['first_name'] . ' ' . $order_data['first_name']
-                  ) 
-                );
-              }
-              else {
-                $full_order_data = $order_data;
-              }
-              ?>
-                <?php foreach ( $columns as $key => $name): ?>
+              <?php foreach ( $columns as $key => $name): ?>
                 <td class="<?php echo $key; ?>" >
                   <?php echo $order_data[$key]; ?>
                 </td>
