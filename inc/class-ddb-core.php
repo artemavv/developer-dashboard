@@ -17,9 +17,9 @@ class Ddb_Core {
   public const ACTION_GENERATE_PAYOUT = 'Generate payout report';
   
   /**
-   * Special value om developer profile indicating to use global profit ratio.
+   * Special value on developer profile indicating to use global profit ratio.
    * 
-   * must be negative integer ( to distinguish it from legitimate custom profir ratios)
+   * must be negative integer ( to distinguish it from legitimate custom profit ratios)
    */
   public const USE_GLOBAL_PROFIT_RATIO    = -1;
   
@@ -74,7 +74,35 @@ class Ddb_Core {
   public static $profit_ratio_options = [
     self::USE_GLOBAL_PROFIT_RATIO => 'Global', "0%" ,"1%", "2%", "3%", "4%", "5%", "6%", "7%", "8%", "9%", "10%", "11%", "12%", "13%", "14%", "15%", "16%", "17%", "18%", "19%", "20%", "21%", "22%", "23%", "24%", "25%", "26%", "27%", "28%", "29%", "30%", "31%", "32%", "33%", "34%", "35%", "36%", "37%", "38%", "39%", "40%", "41%", "42%", "43%", "44%", "45%", "46%", "47%", "48%", "49%", "50%", "51%", "52%", "53%", "54%", "55%", "56%", "57%", "58%", "59%", "60%", "61%", "62%", "63%", "64%", "65%", "66%", "67%", "68%", "69%", "70%", "71%", "72%", "73%", "74%", "75%", "76%", "77%", "78%", "79%", "80%", "81%", "82%", "83%", "84%", "85%", "86%", "87%", "88%", "89%", "90%", "91%", "92%", "93%", "94%", "95%", "96%", "97%", "98%", "99%", "100%"
   ];
-    
+  
+  
+  /**
+   * Column sets and labels, for different report types
+   * 
+   * 
+   * @var array
+   */
+	public static $report_columns = [
+    'sales' => [
+      'first_name'      => 'First name',
+      'last_name'       => 'Last name',
+      'email'           => 'Email',
+      'address'         => 'Address',
+      'date'            => 'Order date',
+      'product_name'    => 'Product',
+      'after_coupon'    => 'Paid price',
+      'license_code'    => 'License code'
+    ],
+    'orders' => [
+      'order_id'        => 'Order ID',
+      'date'            => 'Order date',
+      'full_name'       => 'Full name',
+      'product_name'    => 'Product',
+      'after_coupon'    => 'Paid price',
+      'license_code'    => 'License code'
+    ],
+  ];
+  
 	public static $option_values = array();
 
 	public static function init() {
@@ -694,5 +722,19 @@ EOT;
 			file_put_contents($filename, date("Y-m-d H:i:s") . " | " . print_r($data,1) . "\r\n\r\n", FILE_APPEND);
 		}
 	}
+  
+  
+  // code taken from https://www.php.net/manual/en/function.fputcsv.php
+  public static function make_csv_line( array $fields) : string {
+    
+    $f = fopen('php://memory', 'r+');
+    if (fputcsv($f, $fields) === false) {
+        return false;
+    }
+    rewind($f);
+    $csv_line = stream_get_contents($f);
+    return rtrim($csv_line) . "\r\n";
+  }
+  
   
 }

@@ -98,7 +98,7 @@ class Ddb_Frontend extends Ddb_Core {
     
       $allowed_days = self::generate_allowed_days();
 
-      $out = '<div id="developer-dashboard">';
+      $out = '<div id="developer-dashboard" style="margin: 30px;">';
       /*  
       $out .= "<H2>Total daily sales for {$developer_term->name} </h2>";
       
@@ -192,6 +192,7 @@ class Ddb_Frontend extends Ddb_Core {
           
           $out = "<h3>Found $report_type of products from {$developer_term->name} from $start_date to $end_date</h3>";
           $out .= self::render_orders_list( $report_data, $report_type );
+          //$out .= self::generate_csv_to_be_copied( $report_data, $report_type );
         }
         else {
           $out = "<h3 style='color:darkred;'>No $report_type found in the specified date range ( from $start_date to $end_date )</h3>";
@@ -357,29 +358,7 @@ class Ddb_Frontend extends Ddb_Core {
     
     $out = '';
     
-    if ( $report_type == 'sales' ) {
-      $columns = array(
-        'first_name'      => 'First name',
-        'last_name'       => 'Last name',
-        'email'           => 'Email',
-        'address'         => 'Address',
-        'date'            => 'Order date',
-        'product_name'    => 'Product',
-        //'price'           => 'Full Price',
-        'after_coupon'    => 'Paid price',
-        'license_code'    => 'License code'
-      );
-    }
-    else {
-      $columns = array(
-        'order_id'        => 'Order ID',
-        'date'            => 'Order date',
-        'full_name'       => 'Full name',
-        'product_name'    => 'Product',
-        'after_coupon'    => 'Paid price',
-        'license_code'    => 'License code'
-      );
-    }
+    $columns = self::$report_columns[$report_type] ?? array();
     
     $total = 0;
     
@@ -416,6 +395,61 @@ class Ddb_Frontend extends Ddb_Core {
       $out = ob_get_contents();
       ob_end_clean();
     }
+    
+    return $out;
+  }
+  
+  /**
+   * Prepares CSV text the generated report,
+   * and button to copy that text
+   * 
+   * @param array $report_data
+   * @param string $report_type either 'sales' or 'orders'
+   * @return string CSV
+   */
+  public static function generate_csv_to_be_copied( array $report_data, $report_type = 'sales' ) {
+    
+    $columns = self::$report_columns[$report_type] ?? array();
+    
+    $csv_data = self::make_csv_line( $columns );
+        
+    foreach ( $report_data as $row ) {
+      $csv_data .= self::make_csv_line( $row );
+    }
+    
+    echo('$report_data<pre>' . print_r($report_data, 1) . '</pre>');
+    
+    echo('$csv_data<pre>' . print_r($csv_data, 1) . '</pre>');
+    
+    $out = "<span id='el_to_copy' style='display:none;'>{$csv_data}</span><script>
+      const copyToClipboard = element_id => {
+      
+        const source = document.getElementById(element_id);
+        
+        if ( source ) {
+        
+          const csv_to_copy = source.innerHTML;
+          const el = document.createElement('textarea');
+          el.value = csv_to_copy;
+          el.setAttribute('readonly', '');
+          el.style.position = 'absolute';
+          el.style.left = '-9999px';
+          document.body.appendChild(el);
+          const selected =
+            document.getSelection().rangeCount > 0
+              ? document.getSelection().getRangeAt(0)
+              : false;
+          el.select();
+          document.execCommand('copy');
+          document.body.removeChild(el);
+          if (selected) {
+            document.getSelection().removeAllRanges();
+            document.getSelection().addRange(selected);
+          }
+        }
+        
+        alert('OK');
+      };</script><button onclick='copyToClipboard(\"el_to_copy\")'>Copy CSV data to clipboard</button>";
     
     return $out;
   }

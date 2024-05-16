@@ -2,112 +2,6 @@
 
 class Ddb_Report_Generator extends Ddb_Core {
   
-  
-  public static function generate_html( string $start_date, string $end_date, array $report_lines ) {
-    
-    $out = '';
-    
-    ob_start();
-
-    $total = 0; 
-
-    $columns = array(
-      'first_name'      => 'First name',
-      'last_name'       => 'Last name',
-      'email'           => 'Email',
-      'address'         => 'Address',
-      'date'            => 'Order date',
-      'product_name'    => 'Product',
-      'price'           => 'Full Price',
-      'after_coupon'    => 'Discounted price',
-      'license_code'    => 'License code'
-    );
-    ?> 
-
-    <h3 style='color:green;'>Orders found from <?php echo $start_date; ?> to <?php echo $end_date; ?></h3>
-
-    <table class="ddb-report-table">
-      <thead>
-        <?php foreach ( $columns as $key => $name): ?>
-          <th><?php echo $name; ?></th>
-        <?php endforeach; ?>
-      </thead>
-      <tbody>
-        <?php foreach ( $report_lines as $line ): ?>
-          <tr>
-            <?php foreach ( $columns as $key => $name): ?>
-              <td class="<?php echo $key; ?>" >
-                <?php echo $line[$key]; ?>
-              </td>
-            <?php endforeach; ?>
-          </tr>
-          <?php $total += $line['after_coupon']; ?>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-
-    <h4>Total sales: <?php echo $total; ?></h4>
-    <?php 
-    $out = ob_get_contents();
-    ob_end_clean();
-
-    return $out; 
-  }
-  
-  /* deprecated
-  public static function generate_report_for_developer( $start_date, $end_date ) {
-    
-    $html = '';
-    
-    $report_data = array();
-    
-    $developer_term = self::find_current_developer_term();
-    
-    if ( is_object( $developer_term ) ) {
-      
-      $report_lines = self::get_orders_info( $start_date, $end_date, $developer_term );
-      
-      if ( ! count( $report_lines ) ) {
-        $html = "<h3 style='color:darkred;'>No sales found in the specified date range ( from $start_date to $end_date )</h3>";
-      }
-      else {
-        $html = Ddb_Report_Generator::generate_html( $start_date, $end_date, $report_lines );
-        $html .= Ddb_Report_Generator::generate_csv_to_be_copied( $report_lines );
-      }
-    }
-    else {
-      $html = '<h3>Not authorized</h3>';
-    }
-    
-    return $html;
-  }
-  */
-  
-  public static function generate_csv_to_be_copied( $report_lines ) {
-    
-    $out = "<script>
-      const copyToClipboard = str => {
-        const el = document.createElement('textarea');
-        el.value = str;
-        el.setAttribute('readonly', '');
-        el.style.position = 'absolute';
-        el.style.left = '-9999px';
-        document.body.appendChild(el);
-        const selected =
-          document.getSelection().rangeCount > 0
-            ? document.getSelection().getRangeAt(0)
-            : false;
-        el.select();
-        document.execCommand('copy');
-        document.body.removeChild(el);
-        if (selected) {
-          document.getSelection().removeAllRanges();
-          document.getSelection().addRange(selected);
-        }
-      };</script><button onclick='copyToClipboard(\"Mppp\")'>ТТТ</button>";
-    
-    return $out;
-  }
   /**
    * Returns list of purchases of developer's product, in form of array for each separate purchase:
    * 
@@ -550,19 +444,6 @@ class Ddb_Report_Generator extends Ddb_Core {
         $line = self::make_csv_line( $data );
     }
     return $line;
-  }
-  
-  // code taken from https://www.php.net/manual/en/function.fputcsv.php
-  public static function make_csv_line( array $fields) : string {
-
-    
-    $f = fopen('php://memory', 'r+');
-    if (fputcsv($f, $fields) === false) {
-        return false;
-    }
-    rewind($f);
-    $csv_line = stream_get_contents($f);
-    return rtrim($csv_line) . "\r\n";
   }
   
 }
