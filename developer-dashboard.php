@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.1.2
+Version: 0.1.3
 */
 
 /*
@@ -28,7 +28,7 @@ Version: 0.1.2
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.1.2' );
+define( 'DDB_VERSION', '0.1.3' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;

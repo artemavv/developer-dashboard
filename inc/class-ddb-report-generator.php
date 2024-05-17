@@ -3,39 +3,6 @@
 class Ddb_Report_Generator extends Ddb_Core {
   
   /**
-   * Returns list of purchases of developer's product, in form of array for each separate purchase:
-   * 
-    First Name
-    Last Name
-    Email
-    Billing address
-    Completed Date
-    Product name
-    Price
-    License code
-   * 
-   * ( each line describes purchase of a single WC product ) 
-   * 
-   * NOTE: deal products are excluded from the report!
-   */
-  public static function get_orders_info( string $start_date, string $end_date, object $developer_term ) {
-    
-    $orders_info = array();
-    
-    $paid_order_ids = self::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
-    
-    foreach ($paid_order_ids as $order_id ) {
-      $order_lines = self::get_single_order_info( $order_id, $developer_term );
-      
-      if ( $order_lines ) {
-        $orders_info = array_merge( $orders_info, $order_lines );
-      }
-    }
-    
-    return $orders_info;
-  }
-  
-  /**
    * Returns list of lines suitable for the final report
    * ( each line describes purchase of a single WC product ) 
    * for a single order.
@@ -124,6 +91,40 @@ class Ddb_Report_Generator extends Ddb_Core {
     $ids = array();
     
     
+    
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+    
+    foreach ($sql_results as $row) {
+      $ids[] = $row['ID'];
+    }
+    return $ids;
+  }
+  
+  
+  /**
+   * Get the last N matching orders ( those that include products provided by the specified developer)
+   */
+  public static function get_last_order_ids( string $developer_name, int $amount = 20 ) {
+    
+    global $wpdb;
+    
+    $wp = $wpdb->prefix;
+        
+    $amount_condition = $wpdb->prepare( ' LIMIT %d ', intval( $amount ) ?: 20 );
+      
+    $developer_condition = $wpdb->prepare( "im.`meta_key` = 'developer_name' AND im.`meta_value` = %s ", $developer_name );
+    $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` != '0.00' AND pm.`meta_value` != '0' )";
+    
+    $query_sql = "SELECT p.ID from {$wp}posts AS p
+      LEFT JOIN `{$wp}postmeta` AS pm on p.`ID` = pm.`post_id`
+      LEFT JOIN `{$wp}woocommerce_order_items` AS oi on p.`ID` = oi.`order_id`
+      LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im on im.`order_item_id` = oi.`order_item_id`
+      WHERE $developer_condition
+      AND $order_totals_condition
+      AND p.post_type = 'shop_order' AND p.post_status = 'wc-completed'
+      ORDER BY p.post_date DESC $amount_condition ";
+    
+    $ids = array();
     
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
     

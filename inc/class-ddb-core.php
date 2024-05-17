@@ -56,6 +56,7 @@ class Ddb_Core {
     'payment_currency'    => 'USD', // not used at the moment, but plugin could be expanded in the future
     'additional_notes'    => ''
 	];
+  
 
   /**
    * List of names for different payment methods
@@ -97,6 +98,7 @@ class Ddb_Core {
       'order_id'        => 'Order ID',
       'date'            => 'Order date',
       'full_name'       => 'Full name',
+      'email'           => 'Email',
       'product_name'    => 'Product',
       'after_coupon'    => 'Paid price',
       'license_code'    => 'License code'

@@ -99,19 +99,18 @@ class Ddb_Frontend extends Ddb_Core {
       $allowed_days = self::generate_allowed_days();
 
       $out = '<div id="developer-dashboard" style="margin: 30px;">';
-      /*  
-      $out .= "<H2>Total daily sales for {$developer_term->name} </h2>";
       
-      $dev_sales = self::get_developer_sales_data( $developer_term->term_id, $allowed_days );
-      $out .= self::render_total_daily_sales( $dev_sales );
-*/
+      $out .= '<H2>Payout settings</h2>';
+      
+      $out .= self::render_payout_settings( $developer_term );
+      
       $out .= '<H2>List of completed orders</h2>';
       
       $out .= self::render_orders_report_form_and_results( $developer_term );
       
-      $out .= '<H2>List of sales</h2>';
+      /* $out .= '<H2>List of sales</h2>';
       
-      $out .= self::render_sales_report_form_and_results( $developer_term );
+      $out .= self::render_sales_report_form_and_results( $developer_term ); */
       
       $out .= '</div>';
     }
@@ -180,19 +179,29 @@ class Ddb_Frontend extends Ddb_Core {
     
     $out = ''; 
     
-    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date );
-    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date );
+    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date ) && self::validate_date( $start_date );
+    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date ) && self::validate_date( $end_date );
     
     if ( $start_date && $end_date && $valid_start_date && $valid_end_date && $start_date <= $end_date ) {
       if ( $report_type == 'sales' || $report_type == 'orders' ) {
         
-        $report_data = Ddb_Report_Generator::get_orders_info( $start_date, $end_date, $developer_term );
-       
+        $report_data = array();
+    
+        $paid_order_ids = Ddb_Report_Generator::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+
+        foreach ($paid_order_ids as $order_id ) {
+          $order_lines = Ddb_Report_Generator::get_single_order_info( $order_id, $developer_term );
+
+          if ( $order_lines ) {
+            $report_data = array_merge( $report_data, $order_lines );
+          }
+        }
+    
         if ( is_array($report_data) && count($report_data) ) {
           
           $out = "<h3>Found $report_type of products from {$developer_term->name} from $start_date to $end_date</h3>";
           $out .= self::render_orders_list( $report_data, $report_type );
-          //$out .= self::generate_csv_to_be_copied( $report_data, $report_type );
+          $out .= self::generate_csv_to_be_copied( $report_data, $report_type );
         }
         else {
           $out = "<h3 style='color:darkred;'>No $report_type found in the specified date range ( from $start_date to $end_date )</h3>";
@@ -214,11 +223,96 @@ class Ddb_Frontend extends Ddb_Core {
     return $out;
   }
   
+  public static function validate_date($date, $format = 'Y-m-d' ) {
+    $d = DateTime::createFromFormat( $format, $date );
+    return $d && $d->format( $format ) == $date;
+  }
+  
+  public static function render_payout_settings( object $developer_term ) {
+    
+    $out = '';
+    
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+      
+      $ratio = get_term_meta( $developer_term->term_id, 'profit_ratio', true );
+      $payment_method = get_term_meta( $developer_term->term_id, 'payment_method', true );
+      $paypal_address = get_term_meta( $developer_term->term_id, 'paypal_address', true );
+      $dropbox_folder_url = get_term_meta( $developer_term->term_id, 'dropbox_folder_url', true );  
+    
+      // in the DB these values are stored as fractions ( 0.12 for 12% profit ratio)
+      // need to multiply by 100 to show values as percents
+      
+      if ( $ratio == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $actual_ratio = $global_profit_ratio * 100;
+      }
+      else {
+        $actual_ratio = $ratio * 100;
+      }
+      
+      $out .= '<p><strong>Profit ratio</strong>: ' . ( $actual_ratio ) . '%</p>';
+      $out .= '<p><strong>Payment method</strong>: ' . ( self::$payment_methods_names[$payment_method] ?? '?' ) . '</p>';
+      
+      if ( $payment_method == self::PM__PAYPAL && $paypal_address ) {
+        $out .= '<p><strong>PayPal address</strong>: ' . $paypal_address . '%</p>';
+      }
+      
+      if ( $dropbox_folder_url ) {
+        $out .= '<p><strong>Reports Archive</strong>: <a href="' . $dropbox_folder_url . '">download from Dropbox folder</a></p>';
+      }
+    }
+    
+    return $out;
+  }
+  
+  public static function render_last_n_orders( object $developer_term ) {
+    
+    $out = '';
+    
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+      
+      $report_data = array();
+
+      $last_order_ids = Ddb_Report_Generator::get_last_order_ids( $developer_term->name );
+
+      foreach ($last_order_ids as $order_id ) {
+        $order_lines = Ddb_Report_Generator::get_single_order_info( $order_id, $developer_term );
+
+        if ( $order_lines ) {
+          $report_data = array_merge( $report_data, $order_lines );
+        }
+      }
+        
+      if ( is_array($report_data) && count($report_data) ) {
+        
+        $num = count($report_data);
+        $out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
+        $out .= self::render_orders_list( $report_data, 'orders' );
+      }
+      else {
+        $out = "<h3>Found no orders with products by {$developer_term->name}</h3>";
+      }
+    }
+
+    return $out;
+  }
+  
+  /**
+   * Shows list of orders and report generation form
+   * 
+   * @param object $developer_term
+   * @return string html
+   */
   public static function render_orders_report_form_and_results( object $developer_term ) {
     
     ob_start();
     
-		$action_results = self::do_action_if_triggered( self::ACTION_GENERATE_ORDERS_REPORT ); // generate orders report if requested by a user
+    if ( filter_input( INPUT_POST, 'ddb-button' ) ) {
+      $action_results = self::do_action_if_triggered( self::ACTION_GENERATE_ORDERS_REPORT ); // generate orders report if requested by a user
+    }
+    else {
+      $action_results = self::render_last_n_orders( $developer_term );
+    }
     
     $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-7 days") ) );
     $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
@@ -354,7 +448,7 @@ class Ddb_Frontend extends Ddb_Core {
    * @param string $report_type either 'sales' or 'orders'
    * @return string HTML
    */
-  public static function render_orders_list( array $developer_sales, $report_type = 'sales' ) {
+  public static function render_orders_list( array $developer_sales, $report_type = 'orders' ) {
     
     $out = '';
     
@@ -414,23 +508,36 @@ class Ddb_Frontend extends Ddb_Core {
     $csv_data = self::make_csv_line( $columns );
         
     foreach ( $report_data as $row ) {
-      $csv_data .= self::make_csv_line( $row );
+      
+      $clean_row = [];
+      
+      foreach ( $columns as $column_name => $column_label ) {
+        $target_str = $row[$column_name] ?? $column_label;
+        
+        // remove HTML tags before saving as CSV output
+        $clean_str = trim( str_replace( [ '<br>', '<br/>', '<strong>', '</strong>' ], ' ', $target_str ) );
+        $clean_row[] = $clean_str;
+      }
+      
+      $csv_data .= self::make_csv_line( $clean_row );
     }
-    
-    echo('$report_data<pre>' . print_r($report_data, 1) . '</pre>');
-    
-    echo('$csv_data<pre>' . print_r($csv_data, 1) . '</pre>');
-    
-    $out = "<span id='el_to_copy' style='display:none;'>{$csv_data}</span><script>
+          
+    $out = "<span id='el_to_copy' style='display:none;'>{$csv_data}</span>
+      <script>
       const copyToClipboard = element_id => {
       
         const source = document.getElementById(element_id);
         
         if ( source ) {
         
-          const csv_to_copy = source.innerHTML;
+          const original_csv = source.innerHTML;
+          
+          const clean_csv = original_csv.replaceAll('<br>', ' '); // just in case
+
           const el = document.createElement('textarea');
-          el.value = csv_to_copy;
+          
+          el.value = clean_csv; // value to be copied 
+          
           el.setAttribute('readonly', '');
           el.style.position = 'absolute';
           el.style.left = '-9999px';
@@ -447,9 +554,10 @@ class Ddb_Frontend extends Ddb_Core {
             document.getSelection().addRange(selected);
           }
         }
-        
-        alert('OK');
-      };</script><button onclick='copyToClipboard(\"el_to_copy\")'>Copy CSV data to clipboard</button>";
+      };
+      </script>
+      <button onclick='copyToClipboard(\"el_to_copy\")'>Copy report data to clipboard</button>
+      <br/><br/><br/>";
     
     return $out;
   }
