@@ -137,46 +137,45 @@ class Ddb_Frontend extends Ddb_Core {
     return date('Y-m-d');
   }
   
-  public static function do_action_if_triggered( $action ) {
+  public static function do_action() {
     
     $out = '';
     
-    if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) === $action ) {
+    $action = filter_input( INPUT_POST, self::BUTTON_SUMBIT );
       
-      $developer_term = self::find_current_developer_term();
-    
-      if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
-        
-        $start_date = filter_input( INPUT_POST, self::FIELD_DATE_START ) ?: false;
-        $end_date = filter_input( INPUT_POST, self::FIELD_DATE_END ) ?: false;
+    $developer_term = self::find_current_developer_term();
 
-        switch ( $action ) {
-          case self::ACTION_GENERATE_SALES_REPORT:
-            $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'sales' );
-          break;
-          case self::ACTION_SHOW_ORDERS_REPORT:
-            $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'orders' );
-          break;
-          case self::ACTION_DOWNLOAD_ORDERS_REPORT:
-            
-            // in the usual case this action will be performed by 'ddb_generate_excel_report' function in 'init' hook
-            // which outputs XLSX file and terminates PHP script. 
-            // If PHP script is still running then ddb_generate_excel_report() detected some invalid inputs or found no orders.
-            // therefore we need to run additional checks and inform user about invalid inputs or empty generated report.
-            $validation_failed = self::validate_input( $start_date, $end_date );
-            
-            if ( $validation_failed === false ) { // all inputs are valid, then it must be an empty generated report
-              $out = "<h3 style='color:darkred;'>No orders found in the specified date range ( from $start_date to $end_date )</h3>";
-            }
-            else {
-              $out = $validation_failed;
-            }
-          break;
-        }
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+
+      $start_date = filter_input( INPUT_POST, self::FIELD_DATE_START ) ?: false;
+      $end_date = filter_input( INPUT_POST, self::FIELD_DATE_END ) ?: false;
+
+      switch ( $action ) {
+        case self::ACTION_GENERATE_SALES_REPORT:
+          $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'sales' );
+        break;
+        case self::ACTION_SHOW_ORDERS_REPORT:
+          $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'orders' );
+        break;
+        case self::ACTION_DOWNLOAD_ORDERS_REPORT:
+
+          // in the usual case this action will be performed by 'ddb_generate_excel_report' function in 'init' hook
+          // which outputs XLSX file and terminates PHP script. 
+          // If PHP script is still running then ddb_generate_excel_report() detected some invalid inputs or found no orders.
+          // therefore we need to run additional checks and inform user about invalid inputs or empty generated report.
+          $validation_failed = self::validate_input( $start_date, $end_date );
+
+          if ( $validation_failed === false ) { // all inputs are valid, then it must be an empty generated report
+            $out = "<h3 style='color:darkred;'>No orders found in the specified date range ( from $start_date to $end_date )</h3>";
+          }
+          else {
+            $out = $validation_failed;
+          }
+        break;
       }
-      else {
-        $out = '<h3>Not Authorized to view this report</h3>';
-      }
+    }
+    else {
+      $out = '<h3>Not Authorized to view this report</h3>';
     }
     
     return $out;
@@ -271,10 +270,6 @@ class Ddb_Frontend extends Ddb_Core {
     return $out;
   }
   
-  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date ) {
-    
-  }
-  
   public static function validate_date($date, $format = 'Y-m-d' ) {
     $d = DateTime::createFromFormat( $format, $date );
     return $d && $d->format( $format ) == $date;
@@ -360,7 +355,7 @@ class Ddb_Frontend extends Ddb_Core {
     ob_start();
     
     if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) ) {
-      $action_results = self::do_action_if_triggered( self::ACTION_SHOW_ORDERS_REPORT ); // generate orders report if requested by a user
+      $action_results = self::do_action(); // generate orders report if requested by a user
     }
     else {
       $action_results = self::render_last_n_orders( $developer_term );
@@ -394,6 +389,7 @@ class Ddb_Frontend extends Ddb_Core {
     
     ?> 
 
+    <h3>Create a new report</h3>
     <form method="POST" >
       
       <table class="ddb-report-form-table">
@@ -403,8 +399,10 @@ class Ddb_Frontend extends Ddb_Core {
       </table>
       
       <p class="submit">  
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SHOW_ORDERS_REPORT; ?>" />
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_DOWNLOAD_ORDERS_REPORT; ?>" />
+       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" 
+              value="<?php echo self::ACTION_SHOW_ORDERS_REPORT; ?>" style="background-color: bisque;" />
+       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" 
+              value="<?php echo self::ACTION_DOWNLOAD_ORDERS_REPORT; ?>" style="background-color: gainsboro;"/>
       </p>
       
     </form>
@@ -414,64 +412,6 @@ class Ddb_Frontend extends Ddb_Core {
 
     return $out; 
   }
-    
-  /**
-   * Deprecated.
-   * 
-   * @param object $developer_term
-   * @return string
-   */
-  public static function render_sales_report_form_and_results( $developer_term ) {
-    
-    ob_start();
-    
-    $action_results = self::do_action_if_triggered( self::ACTION_GENERATE_SALES_REPORT ); // generate orders report if requested by a user
-    
-    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?: self::get_earliest_allowed_date() );
-    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?: self::get_today_date() );
-    
-    $report_field_set = array(
-      array(
-				'name'        => "report_date_start",
-				'type'        => 'text',
-				'label'       => 'Start date',
-				'default'     => '',
-        'value'       => $start_date,
-        'description' => 'Enter date in YYYY-MM-DD format'
-			),
-      array(
-				'name'        => "report_date_end",
-				'type'        => 'text',
-				'label'       => 'End date',
-				'default'     => '',
-        'value'       => $end_date,
-        'description' => 'Enter date in YYYY-MM-DD format'
-			),
-		);
-
-    echo $action_results;
-    ?> 
-
-    <form method="POST" >
-      
-      <table class="ddb-report-form-table">
-        <tbody>
-          <?php self::display_field_set( $report_field_set ); ?>
-        </tbody>
-      </table>
-      
-      <p class="submit">  
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_SALES_REPORT; ?>" />
-      </p>
-      
-    </form>
-    <?php 
-    $out = ob_get_contents();
-		ob_end_clean();
-
-    return $out; 
-  }
-  
   
   public static function render_total_daily_sales( $sales_data ) {
     

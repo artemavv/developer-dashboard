@@ -438,6 +438,8 @@ class Ddb_Report_Generator extends Ddb_Core {
    */
   public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date ) {
   
+    self::load_options();
+    
     $report_is_ok = false;
     
     $orders_data = array();
@@ -454,12 +456,16 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     if ( is_array($orders_data) && count($orders_data) ) {
       
+      // 1. Prepare the body of report 
+      
       $report_is_ok = true;
       
       $columns = self::$report_columns['orders'];
       $report_lines = [];
+      $total = 0;
       
       foreach ( $orders_data as $order_line ) {
+        $total += $order_line['after_coupon'];
         
         $report_line = [];
         foreach ( $columns as $key => $name ) {
@@ -468,8 +474,29 @@ class Ddb_Report_Generator extends Ddb_Core {
         
         $report_lines[] = $report_line;
       }
-            
-      $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines );
+
+      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
+
+      // 2. Prepare report summary and payout using individual developer payout settings
+      
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
+      
+      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $payout = $total * $global_profit_ratio;
+      }
+      else {
+        $payout = $total * $payout_settings['profit_ratio'];
+      }
+      
+      $report_summary = [ [ 
+        0 => 'Total:', 
+        1 => $total,
+        2 => 'Payout:',
+        3 => $payout
+      ] ];
+      
+      $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $empty_line, $report_summary );
       
       
       //echo('222 $report_data<pre>' . print_r($report_data, 1) . '</pre>'); die();
