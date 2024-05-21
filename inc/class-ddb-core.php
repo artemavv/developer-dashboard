@@ -3,7 +3,8 @@
 
 class Ddb_Core {
 
-  public const CUTOFF_DATE = '2024-03-12';
+  public const CUTOFF_DATE = '2024-04-16'; // dates earlier than this day are not allowed 
+  
   
   // this data is provided by 'developer-top-sellers' plugin
   public const OPTION_NAME_FULL = 'developer_sales_full';
@@ -12,7 +13,19 @@ class Ddb_Core {
   
 	public static $prefix = 'ddb_';
 	
+  // Available file format for the generated reports
+  public const FILE_FORMAT_XLSX   = 'xlsx';
+  public const FILE_FORMAT_HTML   = 'html';
+  public const FILE_FORMAT_CSV    = 'csv';
   
+  // names of HTML fields in the form
+  public const FIELD_DATE_START       = 'report_date_start';
+  public const FIELD_DATE_END         = 'report_date_end';
+  
+  // name of the submit button that triggers POST form
+  public const BUTTON_SUMBIT = 'ddb-button';
+  
+  // Actions triggered by buttons in backend area
   public const ACTION_SAVE_OPTIONS = 'Save settings';
   public const ACTION_GENERATE_PAYOUT = 'Generate payout report';
   
@@ -198,6 +211,28 @@ class Ddb_Core {
     }
     
     return $developer_term; 
+  }
+  
+  /**
+   * Finds payout settings for the specified developer 
+   * 
+   * @return array or false
+   */
+  public static function find_developer_payout_settings( object $developer_term ) {
+    
+    $developer_data = false;
+    
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+      
+      $developer_data = array();
+      
+      foreach ( self::$dev_profile_settings as $setting_name => $default_value ) {
+        $value =  get_term_meta( $developer_term->term_id, $setting_name, /* single? */ true );
+        $developer_data[ $setting_name ] = $value ?: $default_value; // Elvis operator! 
+      }
+    }
+    
+    return $developer_data;
   }
   
   /**
@@ -581,6 +616,9 @@ EOT;
 			case 'text':
 				$input_html = self::make_text_field( $field, $value );
 				break;
+			case 'date':
+				$input_html = self::make_date_field( $field, $value );
+				break;
 			case 'dropdown':
 				$input_html = self::make_dropdown_field( $field, $value );
 				break;
@@ -668,6 +706,21 @@ EOT;
 	public static function make_text_field($field, $value) {
 		$out = <<<EOT
 			<input type="text" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="ddb-text-field">
+EOT;
+		return $out;
+	}
+  
+	/**
+	 * Generates HTML code for date field input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_date_field($field, $value) {
+    
+    $min = $field['min'] ?? '2023-01-01';
+    
+		$out = <<<EOT
+			<input type="date" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" min="{$min}" class="ddb-date-field">
 EOT;
 		return $out;
 	}

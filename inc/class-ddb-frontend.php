@@ -3,12 +3,11 @@
 
 class Ddb_Frontend extends Ddb_Core {
 
-  public const ACTION_GENERATE_SALES_REPORT = 'Generate sales report';
-  public const ACTION_GENERATE_ORDERS_REPORT = 'Generate orders report';
+  // Actions triggered by buttons in frontend area
+  public const ACTION_GENERATE_SALES_REPORT = 'Show sales report';
+  public const ACTION_SHOW_ORDERS_REPORT = 'Show report';
+  public const ACTION_DOWNLOAD_ORDERS_REPORT = 'Export report to Excel';
   
-  public const FIELD_DATE_START       = 'report_date_start';
-  public const FIELD_DATE_END         = 'report_date_end';
-    
   /**
    * Handler for the "display_content_for_developers_only" shortcode
    * 
@@ -96,13 +95,15 @@ class Ddb_Frontend extends Ddb_Core {
 
       self::load_options();
     
-      $allowed_days = self::generate_allowed_days();
-
       $out = '<div id="developer-dashboard" style="margin: 30px;">';
       
-      $out .= '<H2>Payout settings</h2>';
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
       
-      $out .= self::render_payout_settings( $developer_term );
+      if ( is_array($payout_settings) && count($payout_settings) ) {
+        
+        $out .= '<H2>Payout settings</h2>';
+        $out .= self::render_payout_settings( $payout_settings );
+      }
       
       $out .= '<H2>List of completed orders</h2>';
       
@@ -140,7 +141,7 @@ class Ddb_Frontend extends Ddb_Core {
     
     $out = '';
     
-    if ( filter_input( INPUT_POST, 'ddb-button' ) === $action ) {
+    if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) === $action ) {
       
       $developer_term = self::find_current_developer_term();
     
@@ -153,8 +154,23 @@ class Ddb_Frontend extends Ddb_Core {
           case self::ACTION_GENERATE_SALES_REPORT:
             $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'sales' );
           break;
-          case self::ACTION_GENERATE_ORDERS_REPORT:
+          case self::ACTION_SHOW_ORDERS_REPORT:
             $out = self::validate_input_and_generate_report( $developer_term, $start_date, $end_date, 'orders' );
+          break;
+          case self::ACTION_DOWNLOAD_ORDERS_REPORT:
+            
+            // in the usual case this action will be performed by 'ddb_generate_excel_report' function in 'init' hook
+            // which outputs XLSX file and terminates PHP script. 
+            // If PHP script is still running then ddb_generate_excel_report() detected some invalid inputs or found no orders.
+            // therefore we need to run additional checks and inform user about invalid inputs or empty generated report.
+            $validation_failed = self::validate_input( $start_date, $end_date );
+            
+            if ( $validation_failed === false ) { // all inputs are valid, then it must be an empty generated report
+              $out = "<h3 style='color:darkred;'>No orders found in the specified date range ( from $start_date to $end_date )</h3>";
+            }
+            else {
+              $out = $validation_failed;
+            }
           break;
         }
       }
@@ -167,7 +183,7 @@ class Ddb_Frontend extends Ddb_Core {
   }
   
   /**
-   * Check the forn input and returns HTML with report of requested type+
+   * Check the form input and returns HTML with report of requested type+
    * 
    * @param object $developer_term WP_Term object
    * @param string $start_date date in Y-m-d format
@@ -179,17 +195,16 @@ class Ddb_Frontend extends Ddb_Core {
     
     $out = ''; 
     
-    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date ) && self::validate_date( $start_date );
-    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date ) && self::validate_date( $end_date );
+    $validation_failed = self::validate_input( $start_date, $end_date );
     
-    if ( $start_date && $end_date && $valid_start_date && $valid_end_date && $start_date <= $end_date ) {
+    if ( $validation_failed === false ) {
       if ( $report_type == 'sales' || $report_type == 'orders' ) {
         
         $report_data = array();
     
         $paid_order_ids = Ddb_Report_Generator::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
 
-        foreach ($paid_order_ids as $order_id ) {
+        foreach ( $paid_order_ids as $order_id ) {
           $order_lines = Ddb_Report_Generator::get_single_order_info( $order_id, $developer_term );
 
           if ( $order_lines ) {
@@ -201,6 +216,7 @@ class Ddb_Frontend extends Ddb_Core {
           
           $out = "<h3>Found $report_type of products from {$developer_term->name} from $start_date to $end_date</h3>";
           $out .= self::render_orders_list( $report_data, $report_type );
+          $out .= self::render_orders_summary( $report_data, $developer_term );
           $out .= self::generate_csv_to_be_copied( $report_data, $report_type );
         }
         else {
@@ -209,11 +225,43 @@ class Ddb_Frontend extends Ddb_Core {
       }
     }
     else {
+     $out = $validation_failed; // show error messages
+    }
+    
+    return $out;
+  }
+  
+  /**
+   * Returns false if no errors found in the entered dates.
+   * 
+   * Returns html-formatted error message otherwise
+   * 
+   * @param string $start_date
+   * @param string $end_date
+   * @return boolean|string
+   */
+  public static function validate_input( $start_date, $end_date ) {
+    
+    $valid_start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $start_date ) && self::validate_date( $start_date );
+    $valid_end_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $end_date ) && self::validate_date( $end_date );
+    
+    
+    if ( $start_date && $end_date && $valid_start_date && $valid_end_date && $start_date <= $end_date ) {
+      return false;
+    }
+    else {
+      
+      $out = '';
+      
+      // html5 date input produces YYYY-MM-DD dates, 
+      // but user may enter date in other formats (depending on browser and OS settings )
+      // therefore we have to be vague about the correct format
+      
       if ( ! $valid_start_date ) {
-        $out .= '<h3 style="color:red;">Start date must be in YYYY-MM-DD format</h3>';
+        $out .= '<h3 style="color:red;">Start date is not in valid format</h3>'; 
       }
       if ( ! $valid_end_date ) {
-        $out .= '<h3 style="color:red;">End date must be in YYYY-MM-DD format</h3>';
+        $out .= '<h3 style="color:red;">End date is not in valid format</h3>';
       }
       if ( $start_date > $end_date ) {
         $out .= '<h3 style="color:orange;">Please make sure that the start date is earlier or equal to the end date</h3>';
@@ -223,44 +271,48 @@ class Ddb_Frontend extends Ddb_Core {
     return $out;
   }
   
+  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date ) {
+    
+  }
+  
   public static function validate_date($date, $format = 'Y-m-d' ) {
     $d = DateTime::createFromFormat( $format, $date );
     return $d && $d->format( $format ) == $date;
   }
   
-  public static function render_payout_settings( object $developer_term ) {
+  /**
+   * Renders the list of payout settings
+   * 
+   * @param array $payout_settings
+   * @return string
+   */
+  public static function render_payout_settings( array $payout_settings ) {
     
     $out = '';
-    
-    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
-      
-      $ratio = get_term_meta( $developer_term->term_id, 'profit_ratio', true );
-      $payment_method = get_term_meta( $developer_term->term_id, 'payment_method', true );
-      $paypal_address = get_term_meta( $developer_term->term_id, 'paypal_address', true );
-      $dropbox_folder_url = get_term_meta( $developer_term->term_id, 'dropbox_folder_url', true );  
-    
-      // in the DB these values are stored as fractions ( 0.12 for 12% profit ratio)
-      // need to multiply by 100 to show values as percents
-      
-      if ( $ratio == self::USE_GLOBAL_PROFIT_RATIO ) {
-        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
-        $actual_ratio = $global_profit_ratio * 100;
-      }
-      else {
-        $actual_ratio = $ratio * 100;
-      }
-      
-      $out .= '<p><strong>Profit ratio</strong>: ' . ( $actual_ratio ) . '%</p>';
-      $out .= '<p><strong>Payment method</strong>: ' . ( self::$payment_methods_names[$payment_method] ?? '?' ) . '</p>';
-      
-      if ( $payment_method == self::PM__PAYPAL && $paypal_address ) {
-        $out .= '<p><strong>PayPal address</strong>: ' . $paypal_address . '%</p>';
-      }
-      
-      if ( $dropbox_folder_url ) {
-        $out .= '<p><strong>Reports Archive</strong>: <a href="' . $dropbox_folder_url . '">download from Dropbox folder</a></p>';
-      }
+
+    // in the DB these values are stored as fractions ( 0.12 for 12% profit ratio)
+    // need to multiply by 100 to show values as percents
+
+    if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+      $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+      $actual_ratio = $global_profit_ratio * 100;
     }
+    else {
+      $actual_ratio = $payout_settings['profit_ratio'] * 100;
+    }
+
+    $out .= '<p><strong>Profit ratio</strong>: ' . ( $actual_ratio ) . '%</p>';
+    $out .= '<p><strong>Payment method</strong>: ' . ( self::$payment_methods_names[$payout_settings['payment_method']] ?? '?' ) . '</p>';
+
+    if ( $payout_settings['payment_method'] == self::PM__PAYPAL && $payout_settings['paypal_address'] ) {
+      $out .= '<p><strong>PayPal address</strong>: ' . $payout_settings['paypal_address'] . '%</p>';
+    }
+
+    if ( $payout_settings['dropbox_folder_url'] ) {
+      $out .= '<p><strong>Reports Archive</strong>: <a target="_blank" href="' . $payout_settings['dropbox_folder_url'] . '">download from Dropbox folder</a>'
+        . '<br><small>Reports in archives include sales that occurred before April 16, 2024</small></p>';
+    }
+    
     
     return $out;
   }
@@ -307,8 +359,8 @@ class Ddb_Frontend extends Ddb_Core {
     
     ob_start();
     
-    if ( filter_input( INPUT_POST, 'ddb-button' ) ) {
-      $action_results = self::do_action_if_triggered( self::ACTION_GENERATE_ORDERS_REPORT ); // generate orders report if requested by a user
+    if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) ) {
+      $action_results = self::do_action_if_triggered( self::ACTION_SHOW_ORDERS_REPORT ); // generate orders report if requested by a user
     }
     else {
       $action_results = self::render_last_n_orders( $developer_term );
@@ -320,19 +372,21 @@ class Ddb_Frontend extends Ddb_Core {
     $report_field_set = array(
       array(
 				'name'        => "report_date_start",
-				'type'        => 'text',
+				'type'        => 'date',
 				'label'       => 'Start date',
 				'default'     => '',
+        'min'         => self::get_earliest_allowed_date(),
         'value'       => $start_date,
-        'description' => 'Enter date in YYYY-MM-DD format'
+        'description' => 'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
 			),
       array(
 				'name'        => "report_date_end",
-				'type'        => 'text',
+				'type'        => 'date',
 				'label'       => 'End date',
 				'default'     => '',
+        'min'         => self::get_earliest_allowed_date(),
         'value'       => $end_date,
-        'description' => 'Enter date in YYYY-MM-DD format'
+        'description' => 'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
 			),
 		);
 
@@ -349,7 +403,8 @@ class Ddb_Frontend extends Ddb_Core {
       </table>
       
       <p class="submit">  
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_ORDERS_REPORT; ?>" />
+       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SHOW_ORDERS_REPORT; ?>" />
+       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_DOWNLOAD_ORDERS_REPORT; ?>" />
       </p>
       
     </form>
@@ -360,6 +415,12 @@ class Ddb_Frontend extends Ddb_Core {
     return $out; 
   }
     
+  /**
+   * Deprecated.
+   * 
+   * @param object $developer_term
+   * @return string
+   */
   public static function render_sales_report_form_and_results( $developer_term ) {
     
     ob_start();
@@ -454,11 +515,7 @@ class Ddb_Frontend extends Ddb_Core {
     
     $columns = self::$report_columns[$report_type] ?? array();
     
-    $total = 0;
-    
     if ( is_array( $developer_sales ) && count( $developer_sales ) ) {
-      
-      //echo('<pre>'); echo print_r( $developer_sales, 1 ); echo('</pre>');
       
       ob_start();
       ?>
@@ -478,12 +535,9 @@ class Ddb_Frontend extends Ddb_Core {
                 </td>
               <?php endforeach; ?>
             </tr>
-            <?php $total += $order_data['after_coupon']; ?>
           <?php endforeach; ?>
         </tbody>
         </table>
-
-        <p>Total: <?php echo $total; ?></p>
       <?php 
       
       $out = ob_get_contents();
@@ -492,6 +546,41 @@ class Ddb_Frontend extends Ddb_Core {
     
     return $out;
   }
+  
+  /**
+   * Receives report data and generates summary for the report 
+   * (uses individual developer payout settings for payout calculations)
+   * 
+   * @param array $report_data
+   * @param object $developer_term
+   */
+  public static function render_orders_summary( array $report_data, object $developer_term ) {
+   
+    $out = '';
+    
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
+      
+      $total = 0;
+      
+      foreach ( $report_data as $order_data ) {
+        $total += $order_data['after_coupon'];
+      }
+      
+      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $payout = $total * $global_profit_ratio;
+      }
+      else {
+        $payout = $total * $payout_settings['profit_ratio'];
+      }
+      
+      $out = "<p><strong>Total</strong> \${$total} , <strong>Payout</strong>: \${$payout}</p>";
+    }
+    
+    return $out;
+  }
+  
   
   /**
    * Prepares CSV text the generated report,
@@ -553,6 +642,8 @@ class Ddb_Frontend extends Ddb_Core {
             document.getSelection().removeAllRanges();
             document.getSelection().addRange(selected);
           }
+          
+          alert('Data copied');
         }
       };
       </script>

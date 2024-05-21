@@ -1,6 +1,6 @@
 
 #developer-dashboard {
-  padding: 20px;
+  margin: 30px;
 }
 
 #developer-dashboard #table-wrapper {
@@ -28,4 +28,13 @@
 
 #developer-dashboard td.date {
   text-wrap: nowrap;
+}
+
+#developer-dashboard table.ddb-report-form-table .col-input {
+    width: 200px;
+}
+
+
+#developer-dashboard table.ddb-report-form-table .col-name {
+    width: 150px;
 }

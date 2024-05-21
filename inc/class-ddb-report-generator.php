@@ -47,7 +47,7 @@ class Ddb_Report_Generator extends Ddb_Core {
           'product_name'    => $product['name'],
           'price'           => $product['price_before_coupon'],
           'after_coupon'    => $product['price_after_coupon'],
-          'license_code'    => trim($product['license_code'])
+          'license_code'    => trim( strip_tags( $product['license_code'] ) )
         );
         
         $order_line['full_name'] = $order_line['first_name'] . ' ' . $order_line['last_name'];
@@ -109,6 +109,13 @@ class Ddb_Report_Generator extends Ddb_Core {
     global $wpdb;
     
     $wp = $wpdb->prefix;
+    
+    $earliest_date = self::CUTOFF_DATE;
+      
+    $date_condition = $wpdb->prepare(
+      " ( p.post_date >= %s ) ",
+      $earliest_date . " 00:00:00", 
+    );
         
     $amount_condition = $wpdb->prepare( ' LIMIT %d ', intval( $amount ) ?: 20 );
       
@@ -120,6 +127,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       LEFT JOIN `{$wp}woocommerce_order_items` AS oi on p.`ID` = oi.`order_id`
       LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im on im.`order_item_id` = oi.`order_item_id`
       WHERE $developer_condition
+      AND $date_condition
       AND $order_totals_condition
       AND p.post_type = 'shop_order' AND p.post_status = 'wc-completed'
       ORDER BY p.post_date DESC $amount_condition ";
@@ -221,18 +229,18 @@ class Ddb_Report_Generator extends Ddb_Core {
 	/**
 	 * Send headers for browser to download the file
 	 */
-	private static function echo_headers( $filename, $file_type = 'csv' ) {
+	private static function echo_headers( $filename, $file_type = self::FILE_FORMAT_CSV ) {
     
     switch ( $file_type ) {
-      case 'html':
+      case self::FILE_FORMAT_HTML:
         $content_type = 'text/html';
         $extension = 'html';
       break;
-      case 'xls':
+      case self::FILE_FORMAT_XLSX:
         $content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-        $extension = 'xls';
+        $extension = 'xlsx';
       break;
-      case 'csv':
+      case self::FILE_FORMAT_CSV:
         $content_type = 'text/csv';
         $extension = 'csv';
       break;
@@ -249,13 +257,15 @@ class Ddb_Report_Generator extends Ddb_Core {
   /**
    * Lists developers who are paid by some non-paypal methos
    * 
+   * This report is triggered from backend area and shown to site admins
+   * 
    * @param string $filename
    * @param array $report_data
    * @param array $developer_settings
    * @param float $global_profit_ratio
    * @param type $format
    */
-  public static function generate_general_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = 'csv' ) {
+  public static function generate_general_payroll_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = self::FILE_FORMAT_CSV ) {
     
     self::echo_headers( $filename, $format );
     
@@ -353,7 +363,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param array $developer_settings
    * @param float $global_profit_ratioList
    */
-  public static function generate_summary_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = 'csv' ) {
+  public static function generate_summary_report( string $filename, array $report_data, array $developer_settings, float $global_profit_ratio, $format = self::FILE_FORMAT_CSV ) {
     
     self::echo_headers( $filename );
     
@@ -393,12 +403,95 @@ class Ddb_Report_Generator extends Ddb_Core {
     die();
   }
   
+  public static function validate_and_generate_xlsx_report() {
+
+    $developer_term = Ddb_Core::find_current_developer_term();
+
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+
+      $action = filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT );
+      $start_date = filter_input( INPUT_POST, Ddb_Core::FIELD_DATE_START ) ?: false;
+      $end_date = filter_input( INPUT_POST, Ddb_Core::FIELD_DATE_END ) ?: false;
+
+      $validation_failed = Ddb_Frontend::validate_input( $start_date, $end_date );
+
+      if ( $validation_failed === false ) {
+        switch ( $action ) { // this may be expanded in the future, therefore using switch
+          case Ddb_Frontend::ACTION_DOWNLOAD_ORDERS_REPORT: 
+            $report_generated = self::generate_xlsx_report( $developer_term, $start_date, $end_date );
+
+            if ( $report_generated ) {
+              exit();
+            }
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * 
+   * @param object $developer_term
+   * @param string $start_date
+   * @param string $end_date
+   * @return boolean
+   */
+  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date ) {
+  
+    $report_is_ok = false;
     
-  public static function format_report_data( $headers, $data, $format = 'csv' ) {
+    $orders_data = array();
+    
+    $paid_order_ids = self::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+
+    foreach ( $paid_order_ids as $order_id ) {
+      $order_lines = self::get_single_order_info( $order_id, $developer_term );
+
+      if ( $order_lines ) {
+        $orders_data = array_merge( $orders_data, $order_lines );
+      }
+    }
+    
+    if ( is_array($orders_data) && count($orders_data) ) {
+      
+      $report_is_ok = true;
+      
+      $columns = self::$report_columns['orders'];
+      $report_lines = [];
+      
+      foreach ( $orders_data as $order_line ) {
+        
+        $report_line = [];
+        foreach ( $columns as $key => $name ) {
+          $report_line[] = $order_line[$key];
+        }
+        
+        $report_lines[] = $report_line;
+      }
+            
+      $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines );
+      
+      
+      //echo('222 $report_data<pre>' . print_r($report_data, 1) . '</pre>'); die();
+      
+      $filename = 'report_from_' . $start_date . '_to_' . $end_date;
+    
+      self::echo_headers( $filename, self::FILE_FORMAT_XLSX );
+
+      $writer = new XLSXWriter();
+      $writer->writeSheet( $report_data );
+      $writer->writeToStdOut();
+    }
+    
+    return $report_is_ok;
+  }
+
+    
+  public static function format_report_data( $headers, $data, $format = self::FILE_FORMAT_CSV ) {
   
     $report = '';
     switch ( $format ) {
-      case 'html':
+      case self::FILE_FORMAT_HTML:
         
         $report_headers .= '<thead>';
         foreach ( $headers as $value ) {
@@ -417,7 +510,7 @@ class Ddb_Report_Generator extends Ddb_Core {
         
         $report = '<html><body><table>' . $report_headers . '<tbody>' . $report_data . '</tbody></table></body></html>';
       break;
-      case 'csv':
+      case self::FILE_FORMAT_CSV:
         $report_headers = self::make_csv_line( $headers );
         $report_data = ''; 
         
@@ -426,22 +519,25 @@ class Ddb_Report_Generator extends Ddb_Core {
         }
         
         $report = $report_headers . $report_data;
+      break;
+      case self::FILE_FORMAT_XLSX: // wiil be generated later by XLSXWriter which needs data as a plain array
+        $report = array_merge( $headers, $data );
     }
     return $report;
   }
   
-  public static function make_report_line( $data, $format = 'csv' ) {
+  public static function make_report_line( $data, $format = self::FILE_FORMAT_CSV ) {
   
     $line = '';
     switch ( $format ) {
-      case 'html':
+      case self::FILE_FORMAT_HTML:
         $line .= '<tr>';
         foreach ( $data as $value ) {
           $line .= "<td>$value</td>";
         }
         $line .= '</tr>';
       break;
-      case 'csv':
+      case self::FILE_FORMAT_CSV:
         $line = self::make_csv_line( $data );
     }
     return $line;

@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.1.3
+Version: 0.1.4
 */
 
 /*
@@ -28,7 +28,7 @@ Version: 0.1.3
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.1.3' );
+define( 'DDB_VERSION', '0.1.4' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;
@@ -40,11 +40,19 @@ register_deactivation_hook( $plugin_root, array('Ddb_Plugin', 'uninstall' ) );
 
 $ddb_plugin = new Ddb_Plugin( $plugin_root );
 
-/**** Initialize report generator ****/
+/**** Initialize report generators ****/
 
-if ( isset($_GET['ddb-button']) && $_GET['ddb-button'] == Ddb_Core::ACTION_GENERATE_PAYOUT ) {
+if ( filter_input( INPUT_GET, Ddb_Core::BUTTON_SUMBIT ) == Ddb_Core::ACTION_GENERATE_PAYOUT ) {
   
-  // we need to hook early in order to output our own headers
+  // Admin requested to generate CSV report file
+  // to send him the file, we need to prepare the file contents and send headers before doing anything else
   add_action('init', array( 'Ddb_Plugin', 'generate_payout_report' ) );
 }
 
+if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTION_DOWNLOAD_ORDERS_REPORT ) {
+  
+  // Frontend user requested to generate XLS file
+  // to send him the file, we need to prepare the file contents and send headers before doing anything else
+  require_once( 'vendor/xlsxwriter.class.php' );
+  add_action( 'init', array( 'Ddb_Report_Generator', 'validate_and_generate_xlsx_report' ) );
+}
