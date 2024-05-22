@@ -95,23 +95,23 @@ class Ddb_Frontend extends Ddb_Core {
 
       self::load_options();
     
-      $out = '<div id="developer-dashboard" style="margin: 30px;">';
+      $out = '<div id="developer-dashboard">';
+      
+      if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) ) {
+        $out .= '<h2>Orders report</h2>';
+      }
+      else {
+        $out .= '<h2>Most Recent Orders</h2>';
+      }
+      
+      $out .= self::render_orders_report_form_and_results( $developer_term );
+      
       
       $payout_settings = self::find_developer_payout_settings( $developer_term );
       
       if ( is_array($payout_settings) && count($payout_settings) ) {
-        
-        $out .= '<H2>Payout settings</h2>';
         $out .= self::render_payout_settings( $payout_settings );
       }
-      
-      $out .= '<H2>List of completed orders</h2>';
-      
-      $out .= self::render_orders_report_form_and_results( $developer_term );
-      
-      /* $out .= '<H2>List of sales</h2>';
-      
-      $out .= self::render_sales_report_form_and_results( $developer_term ); */
       
       $out .= '</div>';
     }
@@ -213,7 +213,8 @@ class Ddb_Frontend extends Ddb_Core {
     
         if ( is_array($report_data) && count($report_data) ) {
           
-          $out = "<h3>Found $report_type of products from {$developer_term->name} from $start_date to $end_date</h3>";
+          $out = "<h3>Search result for $report_type between $start_date and $end_date</h3>";
+          
           $out .= self::render_orders_list( $report_data, $report_type );
           $out .= self::render_orders_summary( $report_data, $developer_term );
           $out .= self::generate_csv_to_be_copied( $report_data, $report_type );
@@ -296,16 +297,24 @@ class Ddb_Frontend extends Ddb_Core {
       $actual_ratio = $payout_settings['profit_ratio'] * 100;
     }
 
+    $out .= '<div style="display:inline-block; width: 40%"><h2>Payout settings</h2>';
+    
     $out .= '<p><strong>Profit ratio</strong>: ' . ( $actual_ratio ) . '%</p>';
     $out .= '<p><strong>Payment method</strong>: ' . ( self::$payment_methods_names[$payout_settings['payment_method']] ?? '?' ) . '</p>';
 
     if ( $payout_settings['payment_method'] == self::PM__PAYPAL && $payout_settings['paypal_address'] ) {
       $out .= '<p><strong>PayPal address</strong>: ' . $payout_settings['paypal_address'] . '%</p>';
     }
+    
+    $out .= '</div>';
 
     if ( $payout_settings['dropbox_folder_url'] ) {
-      $out .= '<p><strong>Reports Archive</strong>: <a target="_blank" href="' . $payout_settings['dropbox_folder_url'] . '">download from Dropbox folder</a>'
+      
+      $out .= '<div style="display:inline-block; width: 40%"><h2>Reports Archive</h2>';
+      
+      $out .= '<p><strong><a target="_blank" href="' . $payout_settings['dropbox_folder_url'] . '">Download from Dropbox folder</a></strong>'
         . '<br><small>Reports in archives include sales that occurred before April 16, 2024</small></p>';
+      $out .= '</div>';
     }
     
     
@@ -333,8 +342,9 @@ class Ddb_Frontend extends Ddb_Core {
       if ( is_array($report_data) && count($report_data) ) {
         
         $num = count($report_data);
-        $out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
-        $out .= self::render_orders_list( $report_data, 'orders' );
+        
+        //$out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
+        $out = self::render_orders_list( $report_data, 'orders' );
       }
       else {
         $out = "<h3>Found no orders with products by {$developer_term->name}</h3>";
@@ -372,7 +382,7 @@ class Ddb_Frontend extends Ddb_Core {
 				'default'     => '',
         'min'         => self::get_earliest_allowed_date(),
         'value'       => $start_date,
-        'description' => 'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
+        'description' => '' //'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
 			),
       array(
 				'name'        => "report_date_end",
@@ -381,7 +391,7 @@ class Ddb_Frontend extends Ddb_Core {
 				'default'     => '',
         'min'         => self::get_earliest_allowed_date(),
         'value'       => $end_date,
-        'description' => 'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
+        'description' => ''
 			),
 		);
 
@@ -515,7 +525,12 @@ class Ddb_Frontend extends Ddb_Core {
         $payout = $total * $payout_settings['profit_ratio'];
       }
       
-      $out = "<p><strong>Total</strong> \${$total} , <strong>Payout</strong>: \${$payout}</p>";
+      $formatter = new NumberFormatter( 'en_US', NumberFormatter::CURRENCY );
+      
+      $total_formatted = $formatter->formatCurrency( $total, "USD" );
+      $payout_formatted = $formatter->formatCurrency( $payout, "USD" );
+      
+      $out = "<p><strong>Total</strong>: {$total_formatted} <br><strong>Payout</strong>: {$payout_formatted}</p>";
     }
     
     return $out;
