@@ -104,7 +104,7 @@ class Ddb_Report_Generator extends Ddb_Core {
   /**
    * Get the last N matching orders ( those that include products provided by the specified developer)
    */
-  public static function get_last_order_ids( string $developer_name, int $amount = 20 ) {
+  public static function get_last_order_ids( string $developer_name, int $amount = 20, $include_deals = false ) {
     
     global $wpdb;
     
@@ -140,8 +140,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       $ids[] = $row['ID'];
     }
     return $ids;
-  }
-
+  }  
   
   /**
    * Returns list of developer products purchased in the specified order. 

@@ -35,7 +35,9 @@ class Ddb_Plugin extends Ddb_Core {
       'publish_posts'     => false,
       'manage_categories' => false,
     ));
-    
+   
+    add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'modify_email_notification_for_new_developers' ), 10, 3 );
+    add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'attach_developer_taxonomy_to_new_user' ), 10, 3 );
 	}
 
 	public function initialize() {
@@ -74,6 +76,112 @@ class Ddb_Plugin extends Ddb_Core {
     }
   }
 
+  /**
+   * Callback function for 'wp_new_user_notification_email' filter.
+   * 
+   * This filter is applied in wp_new_user_notification() when a new user is created and email notification is sent to the user
+   * 
+   * The purpose of this callback is to modify email message for the case when it is sent to a developer
+   * 
+   * @param array   $email {
+   *     Used to build wp_mail().
+   *
+   *     @type string $to      The intended recipient - New user email address.
+   *     @type string $subject The subject of the email.
+   *     @type string $message The body of the email.
+   *     @type string $headers The headers of the email.
+   * }
+   * @param WP_User $user     User object for new user.
+   * @param string  $blogname The site title.
+   */
+  public function modify_email_notification_for_new_developers( array $email, object $user, $blogname ) {
+    
+    
+    $user_roles = implode( '', $user->roles );
+    
+    if ( $user_roles === self::DEV_ROLE_NAME ) { // this user is a developer
+      
+      ob_start;
+      ?>
+    <h3>Hey {company_name} Team,</h3>
+    
+    <p class="c0"><span class="c9">We&#39;re thrilled to announce a major upgrade to how you manage your sales with Audio Plugin Deals! We&#39;ve just launched a brand-new, personalized </span><strong>Developer Dashboard</strong><span class="c5">&nbsp;that puts you in complete control.</span></p><p class="c0"><span class="c14 c7">What&#39;s in it for you?</span></p>
+    
+    <ul class="c4 lst-kix_list_1-0 start">
+        <li class="c8 li-bullet-0"><strong>Real-Time Sales Tracking:</strong><span class="c5">&nbsp;Instantly see how your deals are performing.</span></li>
+        <li class="c8 li-bullet-0"><strong>Reports-on-demand:</strong><span class="c5">&nbsp;Generate sales reports on the fly, tailored to your needs.</span></li>
+        <li class="c8 li-bullet-0"><strong>Easy Access to Past Reports:</strong><span class="c5">&nbsp;Quickly review previous reports stored on Dropbox, directly from your dashboard.</span></li>
+    </ul>
+    
+    <h3><strong>How to Get Started:</strong></h3>
+    
+    <ol class="c4 lst-kix_list_2-0 start" start="1">
+        <li class="c2 li-bullet-0"><strong>Your login:</strong></li></ol>
+        <ul class="c4 lst-kix_list_3-1 start">
+            <li class="c11 li-bullet-0"><span class="c5">Username: {username} (or use this email address)</span></li>
+            <li class="c11 li-bullet-0"><span class="c9">Generate a new password here: </span><span class="c6"><a class="c3" href="{reset_url}">https://audioplugin.deals/reset-password/</a></span></li>
+        </ul>
+    <ol class="c4 lst-kix_list_2-0" start="2">
+        <li class="c15 li-bullet-0"><strong>Access your dashboard:</strong><span class="c9">&nbsp;Once you have logged in, click &quot;Developer Dashboard&quot; on My Account page, or use this link: </span><span class="c6"><a class="c3" href="https://audioplugin.deals/developer-dashboard/">https://audioplugin.deals/developer-dashboard/</a></span></li>
+    </ol>
+    
+    <p class="c1"><span class="c5">You&#39;re among the first to experience this exciting new feature! We&#39;d love your feedback. 
+        Let us know if you encounter any issues or have suggestions for improvement.</span></p><p class="c0"><span class="c5">We&#39;re confident this dashboard will make your Audio Plugin Deals experience even smoother and more informative. Happy selling!</span></p><p class="c0"><span class="c5">Best,</span></p><p class="c0"><span class="c5">The Audio Plugin Deals Team</span></p>
+    
+      <?php
+      
+      $message = ob_get_contents();
+      ob_end_clean();
+      
+      $email['headers'] = array( 'Content-Type: text/html; charset=UTF-8' ); 
+      
+      $key = get_password_reset_key( $user );
+      $reset_url = network_site_url( "wp-login.php?action=rp&key=$key&login=" . rawurlencode( $user->user_login ), 'login' );
+      $company_name = $user->first_name;
+      
+      $email['message'] = str_replace( 
+        [ '{company_name}', '{reset_url}', '{username}'], 
+        [ $company_name, $reset_url, $user->user_login ], // see attach_developer_taxonomy_to_new_user() for details 
+        $message 
+      );
+    }
+    
+    return $email;
+  }
+  
+  
+  
+  /**
+   * Callback function for 'wp_new_user_notification_email' filter.
+   * 
+   * This filter is applied in wp_new_user_notification() when a new user is created and email notification is sent to the user
+   * 
+   * The purpose of this callback is to update taxonomy meta and link taxonomy item to the user 
+   * for the case when email is sent to a developer
+   * 
+   */ 
+  public function attach_developer_taxonomy_to_new_user( array $email, object $user, $blogname ) {
+   
+    $user_roles = implode( '', $user->roles );
+    
+    if ( $user_roles === self::DEV_ROLE_NAME ) { // this user is a developer
+      
+      $company_name = $user->first_name; // We assume that the developer account is created with the username set equal to the company name
+      $company_slug = $user->user_login; // also it must ne created with user login equal to the developer slug
+      
+      $taxonomy_term = get_term_by( 'name', $company_name, 'developer' );
+      $taxonomy_term2 = get_term_by( 'slug', $company_slug, 'developer' );
+      
+      if (     is_object( $taxonomy_term ) 
+            && is_object( $taxonomy_term2 ) 
+            && $taxonomy_term2->term_id === $taxonomy_term->term_id ) { // found taxonomy term that matches freshly created user by both name & slug 
+        
+        update_term_meta( $taxonomy_term->term_id, 'user_account', $user->ID ); // attach user account to the developer taxonomy term
+      }
+    }
+    
+    return $email; // since this is a callback for a email filter, return unchanged email
+  }
     
 	public function add_page_to_menu() {
     
