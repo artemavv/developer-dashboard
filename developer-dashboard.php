@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.1.5
+Version: 0.1.6
 */
 
 /*
@@ -28,7 +28,7 @@ Version: 0.1.5
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.1.5' );
+define( 'DDB_VERSION', '0.1.6' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;
@@ -56,3 +56,4 @@ if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTIO
   require_once( 'vendor/xlsxwriter.class.php' );
   add_action( 'init', array( 'Ddb_Report_Generator', 'validate_and_generate_xlsx_report' ) );
 }
+

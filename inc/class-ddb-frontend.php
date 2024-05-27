@@ -106,7 +106,7 @@ class Ddb_Frontend extends Ddb_Core {
       
       $out .= self::render_orders_report_form_and_results( $developer_term );
       
-      $out .= self::render_deals_report_form_and_results( $developer_term );
+      //$out .= self::render_deals_report_form_and_results( $developer_term );
       
       $payout_settings = self::find_developer_payout_settings( $developer_term );
       
@@ -304,7 +304,7 @@ class Ddb_Frontend extends Ddb_Core {
     $out .= '<p><strong>Payment method</strong>: ' . ( self::$payment_methods_names[$payout_settings['payment_method']] ?? '?' ) . '</p>';
 
     if ( $payout_settings['payment_method'] == self::PM__PAYPAL && $payout_settings['paypal_address'] ) {
-      $out .= '<p><strong>PayPal address</strong>: ' . $payout_settings['paypal_address'] . '%</p>';
+      $out .= '<p><strong>PayPal address</strong>: ' . $payout_settings['paypal_address'] . '</p>';
     }
     
     $out .= '</div>';

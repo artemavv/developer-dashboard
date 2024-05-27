@@ -38,6 +38,8 @@ class Ddb_Plugin extends Ddb_Core {
    
     add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'modify_email_notification_for_new_developers' ), 10, 3 );
     add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'attach_developer_taxonomy_to_new_user' ), 10, 3 );
+    
+    add_filter( 'the_title', array( 'Ddb_Plugin', 'custom_title_for_developer_dashboard' ), 10, 2 );
 	}
 
 	public function initialize() {
@@ -70,12 +72,32 @@ class Ddb_Plugin extends Ddb_Core {
   public function register_frontend_scripts_when_shortcode_present() {
     global $post;
     
-    if ( true ) { //if ( is_a( $post, 'WP_Post' ) && has_shortcode( $post->post_content, 'developer_dashboard') ) {
+    if ( is_a( $post, 'WP_Post' ) && has_shortcode( $post->post_content, 'developer_dashboard') ) {
       $file_src = plugins_url( 'css/ddb-front.css', $this->plugin_root );
       wp_enqueue_style( 'ddb-front', $file_src, array(), DDB_VERSION );
     }
   }
 
+  
+  public static function custom_title_for_developer_dashboard( $post_title, $post_id ) {
+    
+    if ( $post_title == 'Developer Dashboard' ) {
+      
+      $user = wp_get_current_user();
+
+      // Check whether that user exists and is actually a Product Developer
+      if ( $user && is_array( $user->roles ) && in_array( self::DEV_ROLE_NAME, $user->roles ) ) {
+        $developer_term = self::find_developer_term_by_user_id( $user->ID );
+        
+        if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+          $post_title = $developer_term->name . ' Dashboard' ;
+        }
+      }
+    }
+    
+    return $post_title;
+  }
+  
   /**
    * Callback function for 'wp_new_user_notification_email' filter.
    * 
@@ -101,7 +123,7 @@ class Ddb_Plugin extends Ddb_Core {
     
     if ( $user_roles === self::DEV_ROLE_NAME ) { // this user is a developer
       
-      ob_start;
+      ob_start();
       ?>
     <h3>Hey {company_name} Team,</h3>
     
@@ -148,8 +170,6 @@ class Ddb_Plugin extends Ddb_Core {
     
     return $email;
   }
-  
-  
   
   /**
    * Callback function for 'wp_new_user_notification_email' filter.
