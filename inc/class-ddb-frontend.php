@@ -295,7 +295,7 @@ class Ddb_Frontend extends Ddb_Core {
       $actual_ratio = $global_profit_ratio * 100;
     }
     else {
-      $actual_ratio = $payout_settings['profit_ratio'] * 100;
+      $actual_ratio = $payout_settings['profit_ratio'];
     }
 
     $out .= '<div style="display:inline-block; width: 40%"><h2>Payout settings</h2>';
@@ -629,7 +629,7 @@ class Ddb_Frontend extends Ddb_Core {
         $payout = $total * $global_profit_ratio;
       }
       else {
-        $payout = $total * $payout_settings['profit_ratio'];
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
       }
       
       $formatter = new NumberFormatter( 'en_US', NumberFormatter::CURRENCY );

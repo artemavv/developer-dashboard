@@ -378,7 +378,7 @@ class Ddb_Report_Generator extends Ddb_Core {
         $dev_name = $dev_data_from_report['name'];
         $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
 
-        $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
+        $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in DB as percents. "2" is 2%, 0.02 
         $paypal_address = $developer['paypal_address'] ?? '';
 
         $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
@@ -485,7 +485,7 @@ class Ddb_Report_Generator extends Ddb_Core {
         $payout = $total * $global_profit_ratio;
       }
       else {
-        $payout = $total * $payout_settings['profit_ratio'];
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
       }
       
       $report_summary = [ [ 
