@@ -322,7 +322,15 @@ class Ddb_Frontend extends Ddb_Core {
     return $out;
   }
   
-  public static function render_last_n_orders( object $developer_term ) {
+  /**
+   * Displays developer orders completed since the start of payment cycle.
+   * 
+   * New cycle starts 16th of each month.
+   * 
+   * @param object $developer_term
+   * @return string html
+   */
+  public static function render_orders_in_current_cycle( object $developer_term ) {
     
     $out = '';
     
@@ -344,12 +352,27 @@ class Ddb_Frontend extends Ddb_Core {
         
         $num = count($report_data);
         
-        //$out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
         $out = self::render_orders_list( $report_data, 'orders' );
       }
       else {
-        $out = "<h3>Found no orders with products by {$developer_term->name}</h3>";
+        $out = "<h3>Found no orders with products by {$developer_term->name} in the current cycle</h3>";
       }
+      
+      $current_day = date('j');
+
+      // December 20th:  Current cycle is from December 16th to January 15th
+      // June 12th:  Current cycle is from May 16th to June 15th
+
+      if ( $current_day > 15 ) {
+        $month1 = date('F'); // current month
+        $month2 = date('F' + time() - 30 * 86400); // next month
+      }
+      else {
+        $month1 = date('F', time() - 30 * 86400); // previous month
+        $month2 = date('F'); // current month
+      }
+        
+      $out .= "<small>Current payment cycle is from $month1 16th to $month2 15th</small>";
     }
 
     return $out;
@@ -403,7 +426,7 @@ class Ddb_Frontend extends Ddb_Core {
       $action_results = self::do_action(); // generate orders report if requested by a user
     }
     else {
-      $action_results = self::render_last_n_orders( $developer_term );
+      $action_results = self::render_orders_in_current_cycle( $developer_term );
     }
     
     $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-7 days") ) );
@@ -629,7 +652,7 @@ class Ddb_Frontend extends Ddb_Core {
         $payout = $total * $global_profit_ratio;
       }
       else {
-        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01; // ratio is saved in DB as percents. "2" is 2%, 0.02 
       }
       
       $formatter = new NumberFormatter( 'en_US', NumberFormatter::CURRENCY );
