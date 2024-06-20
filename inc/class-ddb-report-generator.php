@@ -402,7 +402,9 @@ class Ddb_Report_Generator extends Ddb_Core {
     die();
   }
   
-  public static function validate_and_generate_xlsx_report() {
+  
+  
+  public static function validate_and_generate_xlsx_report_for_developer() {
 
     $developer_term = Ddb_Core::find_current_developer_term();
 
@@ -511,6 +513,90 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     return $report_is_ok;
   }
+  
+  
+  /**
+   * Generates HTML table for report
+   * 
+   * @param object $developer_term
+   * @param string $start_date
+   * @param string $end_date
+   * @return string HTML for the report table
+   */
+  public static function generate_table_report( object $developer_term, string $start_date, string $end_date ) {
+  
+    self::load_options();
+    
+    $out = '';
+    
+    $orders_data = array();
+    
+    $paid_order_ids = self::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+
+    foreach ( $paid_order_ids as $order_id ) {
+      $order_lines = self::get_single_order_info( $order_id, $developer_term );
+
+      if ( $order_lines ) {
+        $orders_data = array_merge( $orders_data, $order_lines );
+      }
+    }
+    
+    if ( is_array($orders_data) && count($orders_data) ) {
+      
+      
+      
+      // 1. Prepare the body of report 
+      
+      $columns = self::$report_columns['orders'];
+      
+      $report_lines = [];
+      $total = 0;
+      
+      foreach ( $orders_data as $order_line ) {
+        $total += $order_line['after_coupon'];
+        
+        $report_line = [];
+        foreach ( $columns as $key => $name ) {
+          $report_line[] = $order_line[$key];
+        }
+        
+        $report_lines[] = $report_line;
+      }
+
+      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
+
+      // 2. Prepare report summary and payout using individual developer payout settings
+      
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
+      
+      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $payout = $total * $global_profit_ratio;
+      }
+      else {
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
+      }
+      
+      $report_summary = [ [ 
+        0 => 'Total:', 
+        1 => $total,
+        2 => 'Payout:',
+        3 => $payout
+      ] ];
+      
+      $report_data = array_merge( $report_lines, $empty_line, $report_summary );
+      
+      //echo('$columns<pre>' . print_r($columns, 1) . '</pre>');
+      //echo('$report_lines<pre>' . print_r($report_lines, 1) . '</pre>');
+
+      $out = self::format_report_data( $columns, $report_data, self::FILE_FORMAT_HTML );
+    }
+    else {
+      $out = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer {$developer_term->name} )</h2>";
+    }
+    
+    return $out;
+  }
 
     
   public static function format_report_data( $headers, $data, $format = self::FILE_FORMAT_CSV ) {
@@ -519,7 +605,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     switch ( $format ) {
       case self::FILE_FORMAT_HTML:
         
-        $report_headers .= '<thead>';
+        $report_headers = '<thead>';
         foreach ( $headers as $value ) {
           $report_headers .= "<th>$value</th>";
         }
@@ -534,7 +620,7 @@ class Ddb_Report_Generator extends Ddb_Core {
           $report_data .= '</tr>';
         }
         
-        $report = '<html><body><table>' . $report_headers . '<tbody>' . $report_data . '</tbody></table></body></html>';
+        $report = '<table>' . $report_headers . '<tbody>' . $report_data . '</tbody></table>';
       break;
       case self::FILE_FORMAT_CSV:
         $report_headers = self::make_csv_line( $headers );

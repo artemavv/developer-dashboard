@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.1.6
+Version: 0.1.7
 */
 
 /*
@@ -28,7 +28,7 @@ Version: 0.1.6
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.1.6' );
+define( 'DDB_VERSION', '0.1.7' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;
@@ -46,7 +46,14 @@ if ( filter_input( INPUT_GET, Ddb_Core::BUTTON_SUMBIT ) == Ddb_Core::ACTION_GENE
   
   // Admin requested to generate CSV report file
   // to send him the file, we need to prepare the file contents and send headers before doing anything else
-  add_action('init', array( 'Ddb_Plugin', 'generate_payout_report' ) );
+  add_action('init', array( 'Ddb_Plugin', 'generate_payout_report_for_admin' ) );
+}
+
+if ( filter_input( INPUT_GET, Ddb_Core::BUTTON_SUMBIT ) == Ddb_Core::ACTION_GENERATE_REPORT_XLSX ) {
+  
+  // Admin requested to generate XLS report file
+  // to send him the file, we need to prepare the file contents and send headers before doing anything else
+  add_action('init', array( 'Ddb_Plugin', 'generate_xlsx_sales_report_for_admin' ) );
 }
 
 if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTION_DOWNLOAD_ORDERS_REPORT ) {
@@ -54,6 +61,6 @@ if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTIO
   // Frontend user requested to generate XLS file
   // to send him the file, we need to prepare the file contents and send headers before doing anything else
   require_once( 'vendor/xlsxwriter.class.php' );
-  add_action( 'init', array( 'Ddb_Report_Generator', 'validate_and_generate_xlsx_report' ) );
+  add_action( 'init', array( 'Ddb_Report_Generator', 'validate_and_generate_xlsx_report_for_developer' ) );
 }
 

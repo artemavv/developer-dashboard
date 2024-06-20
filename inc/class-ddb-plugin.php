@@ -67,6 +67,11 @@ class Ddb_Plugin extends Ddb_Core {
   public function register_admin_styles_and_scripts() {
     $file_src = plugins_url( 'css/ddb-admin.css', $this->plugin_root );
     wp_enqueue_style( 'ddb-admin', $file_src, array(), DDB_VERSION );
+    
+    wp_enqueue_script( 'ddb-admin-js', plugins_url('/js/ddb-admin.js', $this->plugin_root), array( 'jquery' ), DDB_VERSION, true );
+    wp_localize_script( 'ddb-admin-js', 'scs_settings', array(
+      'ajax_url'			=> admin_url( 'admin-ajax.php' ),
+    ) );
   }
   
   public function register_frontend_scripts_when_shortcode_present() {
@@ -217,6 +222,8 @@ class Ddb_Plugin extends Ddb_Core {
   
   public function do_action() {
     
+    $result = '';
+    
     if ( isset( $_POST['ddb-button'] ) ) {
       
       switch ( $_POST['ddb-button'] ) {
@@ -232,14 +239,20 @@ class Ddb_Plugin extends Ddb_Core {
             self::update_developer_settings( $dev_id, $dev_info );
           }
         break;
-       /* 
-        case self::ACTION_GENERATE_PAYOUT:
-          self::generate_payroll( $_POST['report_type'], $_POST['source_timestamp'] );
+       
+        case self::ACTION_GENERATE_REPORT_TABLE:
+          
+          $start    = filter_input( INPUT_POST, self::FIELD_DATE_START );
+          $end      = filter_input( INPUT_POST, self::FIELD_DATE_END );
+          $dev_id   = filter_input( INPUT_POST, 'developer_id' );
+          
+          $result = self::generate_table_sales_report_for_admin( $start, $end, $dev_id );
         break;
-        * 
-        */
+       
       }
     }
+    
+    return $result;
   }
   
   /**
@@ -346,13 +359,56 @@ class Ddb_Plugin extends Ddb_Core {
     
   }
   
+  
+  
+  /**
+   * Generates HTML table with report containing all sales for the specified developer in the specified date range
+   * 
+   * @param $start_date string date in format Y-m-d
+   * @param $end_date string date in format Y-m-d 
+   * @param $developer_id int
+   * @param $format string 'table' or 'xlsx'
+   */
+  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id ) {
+    
+    $result = "<h2 style='color:red;'>Error: could not generate the report ( $start_date, $end_date, $developer_id )</h2>";
+    
+    $developer_term = self::find_developer_term_by_id( $developer_id );
+
+    if ( $developer_term ) {
+      $result = Ddb_Report_Generator::generate_table_report( $developer_term, $start_date, $end_date );
+    }
+    
+    return $result;
+  }
+  
+  /**
+   * Generates XLSX file when requested from admin area
+   */
+  public static function generate_xlsx_sales_report_for_admin() {
+
+    $start    = filter_input( INPUT_POST, self::FIELD_DATE_START );
+    $end      = filter_input( INPUT_POST, self::FIELD_DATE_END );
+    $dev_id   = filter_input( INPUT_POST, 'developer_id' );
+
+    $developer_term = self::find_developer_term_by_id( $dev_id );
+
+    if ( $developer_term ) {
+      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date );
+
+      if ( $report_generated ) {
+        exit();
+      }
+    }
+  }
+  
   /**
    * 
    * option_name to search for in "wp_options" is in the format of 'aff_cron_results_XXXX', where XXX if $payroll_timestamp
    * 
    * $payout_category either 'paypal' or 'others'
    */
-  public static function generate_payout_report() {
+  public static function generate_payout_report_for_admin() {
     
     $payout_category = $_GET['payout_category'];
     
@@ -446,14 +502,88 @@ class Ddb_Plugin extends Ddb_Core {
     if ( isset( $_POST['ddb-button'] ) ) {
 			$action_results = $this->do_action();
 		}
+    
+    echo $action_results;
 		
     $this->developers = self::get_developer_list_and_settings();
     
     self::load_options();
    
+    $this->render_report_generator_form();
     $this->render_payout_report_form();
     $this->render_settings_form();
+    
   }
+  
+  /**
+   * Shows the form used to generate developer reports for the admin
+   */
+  public function render_report_generator_form() {
+    
+    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-30 days") ) );
+    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
+    $developer_id = sanitize_text_field( filter_input( INPUT_POST, 'developer_id') ?? 0 );
+    
+    $developers = self::get_developer_list_and_settings();
+    
+    $developer_list = array( '0' => '[All developers]' );
+    
+    foreach( $developers as $term_id => $dev_data ) {
+      $developer_list[$term_id] = $dev_data['name'];
+    }
+    
+    $report_field_set = array(
+      array(
+				'name'        => "report_date_start",
+				'type'        => 'date',
+				'label'       => 'Start date',
+        'min'         => '2020-01-01',
+        'value'       => $start_date,
+        'description' => '' 
+			),
+      array(
+				'name'        => "report_date_end",
+				'type'        => 'date',
+				'label'       => 'End date',
+        'min'         => '2020-01-01',
+        'value'       => $end_date,
+        'description' => ''
+			),
+      array(
+				'name'        => "developer_id",
+				'type'        => 'dropdown',
+				'label'       => 'Developer',
+        'autocomplete'=> true,
+        'options'     => $developer_list,
+        'value'       => $developer_id,
+        'description' => ''
+			),
+		);
+
+    ?> 
+
+    <form method="POST" >
+    
+      <h2><?php esc_html_e('Generate Developer Report', 'ddb'); ?></h2>
+      
+      
+      <table class="ddb-global-table">
+        <tbody>
+          <?php self::display_field_set( $report_field_set ); ?>
+        </tbody>
+      </table>
+    
+      
+      <p class="submit">
+       <input type="submit" id="ddb-button-generate-xlsx" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_XLSX; ?>" />
+       <input type="submit" id="ddb-button-generate-table" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_TABLE; ?>" />
+      </p>
+      
+    </form>
+    <?php 
+
+  }
+
   
   public function render_settings_form() {
     

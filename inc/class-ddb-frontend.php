@@ -120,24 +120,6 @@ class Ddb_Frontend extends Ddb_Core {
     return $out;
   }
   
-  /**
-   * Returns earliest allowed date in YYYY-MM-DD format
-   * 
-   * @return string
-   */
-  public static function get_earliest_allowed_date() {
-    return self::CUTOFF_DATE;
-  }
-  
-  /**
-   * Returns today date in YYYY-MM-DD format
-   * 
-   * @return string
-   */
-  public static function get_today_date() {
-    return date('Y-m-d');
-  }
-  
   public static function do_action() {
     
     $out = '';

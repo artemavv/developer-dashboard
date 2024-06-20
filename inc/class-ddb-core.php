@@ -28,6 +28,8 @@ class Ddb_Core {
   // Actions triggered by buttons in backend area
   public const ACTION_SAVE_OPTIONS = 'Save settings';
   public const ACTION_GENERATE_PAYOUT = 'Generate payout report';
+  public const ACTION_GENERATE_REPORT_XLSX = 'Generate sales report (XLSX file)';
+  public const ACTION_GENERATE_REPORT_TABLE = 'Generate sales report (show table)';
   
   /**
    * Special value on developer profile indicating to use global profit ratio.
@@ -43,6 +45,7 @@ class Ddb_Core {
   public const PM__TRANSFER_INTERNAL      = 'internal';
   public const PM__TRANSFER_ACH           = 'ach';
   public const PM__PAYPAL                 = 'paypal';
+  public const PM__BOFA                   = 'bofa';
   
   public static $option_names = [
     'include_notes_into_report'     => false,
@@ -83,6 +86,7 @@ class Ddb_Core {
     self::PM__TRANSFER_INTERNAL           => 'Bank Transfer (Internal)',
     self::PM__TRANSFER_ACH                => 'Bank Transfer ACH',
     self::PM__PAYPAL                      => 'PayPal',
+    self::PM__BOFA                        => 'Bank of America',
   ];
   
   public static $profit_ratio_options = [
@@ -163,6 +167,23 @@ class Ddb_Core {
 		return $out;
 	}
   
+  /**
+   * Returns earliest allowed date in YYYY-MM-DD format
+   * 
+   * @return string
+   */
+  public static function get_earliest_allowed_date() {
+    return self::CUTOFF_DATE;
+  }
+  
+  /**
+   * Returns today date in YYYY-MM-DD format
+   * 
+   * @return string
+   */
+  public static function get_today_date() {
+    return date('Y-m-d');
+  }
   
   /**
    * Finds developer taxonomy term by its id
@@ -578,17 +599,10 @@ EOT;
 	public static function display_field_set( $field_set ) {
 		foreach ( $field_set as $field ) {
 
-			$value = false;
-
-			if (isset($field['value'])) {
-				$value = $field['value'];
-			}
-      
+			$value = $field['value'] ?? false;
+			
       $field['id'] = str_replace( '_', '-', $field['name'] );
 
-			if ( ( ! $value ) && ( !in_array( $field['type'], array( 'checkbox' ) ) ) ) {
-				$value = isset( $field['default'] ) ? $field['default'] : '';
-			}
 			echo self::make_field( $field, $value );
 		}
 	}
@@ -673,7 +687,7 @@ EOT;
 				else {
 				$table_row_html = <<<EOT
 		<tr style="display:{$display}" >
-			<td class="col-name" style="{$field['style']}"><label for="wppn_{$field['id']}">$label</label></td>
+			<td class="col-name" style="{$field['style']}"><label for="ddb_{$field['id']}">$label</label></td>
 			<td class="col-input">{$input_html}</td>
 			<td class="col-info"></td>
 		</tr>
@@ -743,7 +757,12 @@ EOT;
 	 * @param array $value
 	 */
 	public static function make_dropdown_field($field, $value) {
-		$out = '<select name="' . $field['name'] . '" id="ddb_' . $field['id'] . '">';
+    
+    $autocomplete = $field['autocomplete'] ?? false;
+    
+    $class = $autocomplete ? 'ddb-autocomplete' : '';
+    
+    $out = "<select class='$class' name='{$field['name']}' id='ddb_{$field['id']}' >";
 
 		foreach ($field['options'] as $optionValue => $optionName) {
 			$selected = ((string)$value == (string)$optionValue) ? 'selected="selected"' : '';
