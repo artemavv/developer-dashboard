@@ -387,9 +387,9 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public static function generate_xlsx_sales_report_for_admin() {
 
-    $start    = filter_input( INPUT_POST, self::FIELD_DATE_START );
-    $end      = filter_input( INPUT_POST, self::FIELD_DATE_END );
-    $dev_id   = filter_input( INPUT_POST, 'developer_id' );
+    $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
+    $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
+    $dev_id         = filter_input( INPUT_POST, 'developer_id' );
 
     $developer_term = self::find_developer_term_by_id( $dev_id );
 
@@ -559,7 +559,7 @@ class Ddb_Plugin extends Ddb_Core {
         'description' => ''
 			),
 		);
-
+    
     ?> 
 
     <form method="POST" >

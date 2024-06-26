@@ -195,7 +195,10 @@ class Ddb_Frontend extends Ddb_Core {
         }
     
         if ( is_array($report_data) && count($report_data) ) {
-          
+         
+
+          $report_data = Ddb_Report_Generator::remove_duplicated_order_lines( $report_data );
+
           $out = "<h3>Search result for $report_type between $start_date and $end_date</h3>";
           
           $out .= self::render_orders_list( $report_data, $report_type );
@@ -331,6 +334,8 @@ class Ddb_Frontend extends Ddb_Core {
       }
         
       if ( is_array($report_data) && count($report_data) ) {
+        
+        $report_data = Ddb_Report_Generator::remove_duplicated_order_lines( $report_data );
         
         $num = count($report_data);
         

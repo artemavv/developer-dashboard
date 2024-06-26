@@ -142,6 +142,39 @@ class Ddb_Report_Generator extends Ddb_Core {
     return $ids;
   }  
   
+  
+  public static function remove_duplicated_order_lines( $order_lines ) {
+
+    $filtered_lines = array();
+
+    foreach ( $order_lines as $line ) {
+      if ( ! self::check_for_duplicated_line( $line['email'], $line['product_name'], $filtered_lines ) ) {
+        $filtered_lines[] = $line;
+      }
+    }
+
+    return $filtered_lines;
+  }
+  
+  
+  public static function check_for_duplicated_line( $billing_email, $product_name, $filtered_lines ) {
+
+    $this_line_is_duplicated = false;
+    
+    foreach ( $filtered_lines as $line ) {
+
+      $source_billing_email = $line['email'];
+      $source_product_name = $line['product_name'];
+
+      if ( $source_product_name == $product_name && $source_billing_email == $billing_email ) {
+        $this_line_is_duplicated = true;
+        break;
+      }
+    }
+
+    return $this_line_is_duplicated;
+  }
+  
   /**
    * Returns list of developer products purchased in the specified order. 
    * 
@@ -457,6 +490,8 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     if ( is_array($orders_data) && count($orders_data) ) {
       
+      $orders_data = self::remove_duplicated_order_lines( $orders_data );
+      
       // 1. Prepare the body of report 
       
       $report_is_ok = true;
@@ -543,7 +578,15 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     if ( is_array($orders_data) && count($orders_data) ) {
       
+      self::log('before remove_duplicated_order_lines');
       
+      self::log( $orders_data );
+      
+      $orders_data = self::remove_duplicated_order_lines( $orders_data );
+      
+      self::log('AFTER remove_duplicated_order_lines');
+      
+      self::log( $orders_data );
       
       // 1. Prepare the body of report 
       
