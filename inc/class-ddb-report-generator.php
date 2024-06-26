@@ -63,7 +63,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * Get the list of matching orders ( those that include products provided by the specified developer),
    * within specified date range and with order sum greater than 0 
    */
-  public static function get_paid_order_ids( string $start_date, string $end_date, string $developer_name ) {
+  public static function get_developer_order_ids( string $start_date, string $end_date, string $developer_name, bool $include_free_orders = false ) {
     
     global $wpdb;
     
@@ -76,7 +76,13 @@ class Ddb_Report_Generator extends Ddb_Core {
     );
       
     $developer_condition = $wpdb->prepare( "im.`meta_key` = 'developer_name' AND im.`meta_value` = %s ", $developer_name );
-    $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` != '0.00' AND pm.`meta_value` != '0' )";
+    
+    if ( $include_free_orders ) {
+      $order_totals_condition = " 1 = 1 ";
+    }
+    else {
+      $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` != '0.00' AND pm.`meta_value` != '0' )";
+    }
     
     $query_sql = "SELECT p.ID from {$wp}posts AS p
       LEFT JOIN `{$wp}postmeta` AS pm on p.`ID` = pm.`post_id`
@@ -90,7 +96,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $ids = array();
     
-    
+    //echo('$query_sql<pre>' . print_r($query_sql, 1) . '</pre>');
     
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
     
@@ -464,13 +470,15 @@ class Ddb_Report_Generator extends Ddb_Core {
   }
 
   /**
+   * Generates XLSX file for the developer
    * 
    * @param object $developer_term
    * @param string $start_date
    * @param string $end_date
+   * @param boolean $include_free_orders
    * @return boolean
    */
-  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date ) {
+  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date, bool $include_free_orders = false ) {
   
     self::load_options();
     
@@ -478,7 +486,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $orders_data = array();
     
-    $paid_order_ids = self::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $include_free_orders );
 
     foreach ( $paid_order_ids as $order_id ) {
       $order_lines = self::get_single_order_info( $order_id, $developer_term );
@@ -556,9 +564,10 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param object $developer_term
    * @param string $start_date
    * @param string $end_date
+   * @param boolean $include_free_orders
    * @return string HTML for the report table
    */
-  public static function generate_table_report( object $developer_term, string $start_date, string $end_date ) {
+  public static function generate_table_report( object $developer_term, string $start_date, string $end_date, $include_free_orders = false ) {
   
     self::load_options();
     
@@ -566,7 +575,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $orders_data = array();
     
-    $paid_order_ids = self::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $include_free_orders );
 
     foreach ( $paid_order_ids as $order_id ) {
       $order_lines = self::get_single_order_info( $order_id, $developer_term );
@@ -578,15 +587,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     if ( is_array($orders_data) && count($orders_data) ) {
       
-      self::log('before remove_duplicated_order_lines');
-      
-      self::log( $orders_data );
-      
       $orders_data = self::remove_duplicated_order_lines( $orders_data );
-      
-      self::log('AFTER remove_duplicated_order_lines');
-      
-      self::log( $orders_data );
       
       // 1. Prepare the body of report 
       
@@ -663,7 +664,7 @@ class Ddb_Report_Generator extends Ddb_Core {
           $report_data .= '</tr>';
         }
         
-        $report = '<table>' . $report_headers . '<tbody>' . $report_data . '</tbody></table>';
+        $report = '<table class="ddb-table">' . $report_headers . '<tbody>' . $report_data . '</tbody></table>';
       break;
       case self::FILE_FORMAT_CSV:
         $report_headers = self::make_csv_line( $headers );

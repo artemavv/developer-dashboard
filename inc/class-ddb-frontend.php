@@ -184,7 +184,7 @@ class Ddb_Frontend extends Ddb_Core {
         
         $report_data = array();
     
-        $paid_order_ids = Ddb_Report_Generator::get_paid_order_ids( $start_date, $end_date, $developer_term->name );
+        $paid_order_ids = Ddb_Report_Generator::get_developer_order_ids( $start_date, $end_date, $developer_term->name );
 
         foreach ( $paid_order_ids as $order_id ) {
           $order_lines = Ddb_Report_Generator::get_single_order_info( $order_id, $developer_term );

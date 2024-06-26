@@ -226,6 +226,11 @@ class Ddb_Plugin extends Ddb_Core {
     
     if ( isset( $_POST['ddb-button'] ) ) {
       
+      $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
+      $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
+      $free_orders    = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+      $dev_id         = filter_input( INPUT_POST, 'developer_id' );
+    
       switch ( $_POST['ddb-button'] ) {
         case self::ACTION_SAVE_OPTIONS:
          
@@ -241,14 +246,17 @@ class Ddb_Plugin extends Ddb_Core {
         break;
        
         case self::ACTION_GENERATE_REPORT_TABLE:
-          
-          $start    = filter_input( INPUT_POST, self::FIELD_DATE_START );
-          $end      = filter_input( INPUT_POST, self::FIELD_DATE_END );
-          $dev_id   = filter_input( INPUT_POST, 'developer_id' );
-          
-          $result = self::generate_table_sales_report_for_admin( $start, $end, $dev_id );
+          $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $dev_id, $free_orders );
         break;
        
+        case self::ACTION_GENERATE_REPORT_XLSX: // In general case this action is performed by Ddb_Plugi::generate_xlsx_sales_report_for_admin()
+        
+          // generate_xlsx_sales_report_for_admin() stops script execution when it found some reports.
+          // If we are here, then that function found nothing. 
+          
+          $result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id )</h2>";
+          
+        break;
       }
     }
     
@@ -367,16 +375,16 @@ class Ddb_Plugin extends Ddb_Core {
    * @param $start_date string date in format Y-m-d
    * @param $end_date string date in format Y-m-d 
    * @param $developer_id int
-   * @param $format string 'table' or 'xlsx'
+   
    */
-  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id ) {
+  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id, $include_free_orders ) {
     
     $result = "<h2 style='color:red;'>Error: could not generate the report ( $start_date, $end_date, $developer_id )</h2>";
     
     $developer_term = self::find_developer_term_by_id( $developer_id );
 
     if ( $developer_term ) {
-      $result = Ddb_Report_Generator::generate_table_report( $developer_term, $start_date, $end_date );
+      $result = Ddb_Report_Generator::generate_table_report( $developer_term, $start_date, $end_date, $include_free_orders );
     }
     
     return $result;
@@ -389,12 +397,13 @@ class Ddb_Plugin extends Ddb_Core {
 
     $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
     $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
+    $free_orders    = (bool) filter_input( INPUT_POST, 'include_free_orders' );
     $dev_id         = filter_input( INPUT_POST, 'developer_id' );
 
     $developer_term = self::find_developer_term_by_id( $dev_id );
 
     if ( $developer_term ) {
-      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date );
+      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $free_orders );
 
       if ( $report_generated ) {
         exit();
@@ -526,7 +535,7 @@ class Ddb_Plugin extends Ddb_Core {
     
     $developers = self::get_developer_list_and_settings();
     
-    $developer_list = array( '0' => '[All developers]' );
+    $developer_list = array();
     
     foreach( $developers as $term_id => $dev_data ) {
       $developer_list[$term_id] = $dev_data['name'];
@@ -556,6 +565,13 @@ class Ddb_Plugin extends Ddb_Core {
         'autocomplete'=> true,
         'options'     => $developer_list,
         'value'       => $developer_id,
+        'description' => ''
+			),
+      array(
+				'name'        => "include_free_orders",
+				'type'        => 'checkbox',
+				'label'       => 'Include free orders ( with $0 total sum )',
+        'value'       => 0,
         'description' => ''
 			),
 		);
