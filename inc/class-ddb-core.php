@@ -461,6 +461,43 @@ class Ddb_Core {
     return $report_summaries;
   }
   
+  
+  
+  /**
+   * Finds all active WooCommerce products
+   * 
+   * returns array[ product_id => product_name ]
+   * 
+   * @global object $wpdb
+   * @return array
+   */
+  public static function get_all_developer_products() {
+    global $wpdb;
+    $wp = $wpdb->prefix;
+    
+    $query_sql = "SELECT p.ID AS pid, p.post_title AS name from {$wp}posts AS p
+        JOIN {$wp}term_relationships tr     ON p.ID = tr.object_id
+        JOIN {$wp}term_taxonomy tt          ON tr.term_taxonomy_id = tt.term_taxonomy_id
+        JOIN {$wp}terms t                   ON tt.term_id = t.term_id
+				WHERE p.`post_status` = 'publish' AND p.`post_type` = 'product'
+        AND tt.taxonomy = 'developer' ";
+          
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+
+    $products = array();
+    
+    foreach ( $sql_results as $row ) {
+      
+      $product_id     = $row['pid'];
+      $product_name   = $row['name'];
+      
+      $products[$product_id] = $product_name;
+    }
+    
+    return $products;
+  }
+
+  
   /**
    * Finds all active WooCommerce products for the specific developer
    * 

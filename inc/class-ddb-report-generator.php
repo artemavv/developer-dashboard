@@ -9,14 +9,20 @@ class Ddb_Report_Generator extends Ddb_Core {
    * 
    * For each developer's product in that order, a separate line is generated - it will go into the final report
    */
-  public static function get_single_order_info( int $order_id, object $developer_term ) {
+  public static function get_single_order_info( int $order_id, object $developer_term, $product_id = false ) {
   
     $order_lines = false;
     
     $order = new WC_Order( $order_id );
 
     if ( is_object( $order ) ) {
-      $order_items_data = self::get_developer_items_in_order( $order, $developer_term );
+      
+      if ( $developer_term ) {
+        $order_items_data = self::get_developer_items_in_order( $order, $developer_term );
+      }
+      else {
+        $order_items_data = self::get_product_items_in_order( $order, $product_id );
+      }
 
       //echo('order_items_data<pre>');print_r($order_items_data);echo('</pre>');
 
@@ -63,11 +69,82 @@ class Ddb_Report_Generator extends Ddb_Core {
    * Get the list of matching orders ( those that include products provided by the specified developer),
    * within specified date range and with order sum greater than 0 
    */
-  public static function get_developer_order_ids( string $start_date, string $end_date, string $developer_name, bool $include_free_orders = false ) {
+  public static function get_developer_order_ids( string $start_date, string $end_date, string $developer_name = '', $product_id = 0, bool $include_free_orders = false ) {
+    
+    if ( ! $developer_name && ! $product_id ) {
+      return false; // not enough search info
+    }
     
     global $wpdb;
     
     $wp = $wpdb->prefix;
+    
+    $date_condition = $wpdb->prepare(
+      " ( wco.date_created_gmt >= %s AND wco.date_created_gmt <= %s ) ",
+      $start_date . " 00:00:00", 
+      $end_date . " 23:59:59"
+    );
+    
+    if ( $product_id != 0 ) {
+      $maybe_add_product_join = " LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im2 on im2.`order_item_id` = oi.`order_item_id` ";
+      $product_condition = $wpdb->prepare( "im2.`meta_key` = '_product_id' AND im2.`meta_value` = %d ", $product_id );
+    }
+    else {
+      $maybe_add_product_join = '';
+      $product_condition = ' 1 = 1 ';
+    }
+    
+    if ( $developer_name ) {
+      $maybe_add_developer_join = " LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im on im.`order_item_id` = oi.`order_item_id` ";
+      $developer_condition = $wpdb->prepare( "im.`meta_key` = 'developer_name' AND im.`meta_value` = %s ", $developer_name );
+    } 
+    else {
+      $maybe_add_developer_join = '';
+      $developer_condition = ' 1 = 1 ';
+    }
+    
+    if ( $include_free_orders ) {
+      $order_totals_condition = " 1 = 1 ";
+    }
+    else {
+      $order_totals_condition = " wco.total_amount > 0 ";
+    }
+    
+    $query_sql = "SELECT wco.id as ID from {$wp}wc_orders AS wco
+      LEFT JOIN `{$wp}woocommerce_order_items` AS oi on wco.`id` = oi.`order_id`
+      $maybe_add_developer_join
+      $maybe_add_product_join  
+      WHERE $developer_condition
+      AND $product_condition
+      AND $date_condition
+      AND $order_totals_condition
+      AND wco.status = 'wc-completed'
+      ORDER BY wco.date_created_gmt DESC";
+    
+    $ids = array();
+    
+    echo('$query_sql<pre>' . print_r($query_sql, 1) . '</pre>');
+    
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+    
+    foreach ($sql_results as $row) {
+      $ids[] = $row['ID'];
+    }
+    return $ids;
+  }
+  
+  
+  /**
+   * Get the list of matching orders ( those that include products specified by ID ),
+   * within specified date range and with order sum greater than 0 
+   */
+  public static function get_product_order_ids( string $start_date, string $end_date, int $product_id, bool $include_free_orders = false ) {
+    
+    global $wpdb;
+    
+    $wp = $wpdb->prefix;
+    
+    $product_condition = $wpdb->prepare( "im.`meta_key` = '_product_id' AND im.`meta_value` = %d ", $product_id );
     
     $date_condition = $wpdb->prepare(
       " ( p.post_date >= %s AND p.post_date <= %s ) ",
@@ -75,8 +152,6 @@ class Ddb_Report_Generator extends Ddb_Core {
       $end_date . " 23:59:59"
     );
       
-    $developer_condition = $wpdb->prepare( "im.`meta_key` = 'developer_name' AND im.`meta_value` = %s ", $developer_name );
-    
     if ( $include_free_orders ) {
       $order_totals_condition = " 1 = 1 ";
     }
@@ -88,7 +163,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       LEFT JOIN `{$wp}postmeta` AS pm on p.`ID` = pm.`post_id`
       LEFT JOIN `{$wp}woocommerce_order_items` AS oi on p.`ID` = oi.`order_id`
       LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im on im.`order_item_id` = oi.`order_item_id`
-      WHERE $developer_condition
+      WHERE $product_condition
       AND $date_condition
       AND $order_totals_condition
       AND p.post_type = 'shop_order' AND p.post_status = 'wc-completed'
@@ -478,7 +553,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param boolean $include_free_orders
    * @return boolean
    */
-  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date, bool $include_free_orders = false ) {
+  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date, $product_id = 0, bool $include_free_orders = false ) {
   
     self::load_options();
     
@@ -486,7 +561,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $orders_data = array();
     
-    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $include_free_orders );
+    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $product_id, $include_free_orders );
 
     foreach ( $paid_order_ids as $order_id ) {
       $order_lines = self::get_single_order_info( $order_id, $developer_term );
@@ -559,7 +634,7 @@ class Ddb_Report_Generator extends Ddb_Core {
   
   
   /**
-   * Generates HTML table for report
+   * Generates HTML table for report about all products of specified developer
    * 
    * @param object $developer_term
    * @param string $start_date
@@ -567,7 +642,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param boolean $include_free_orders
    * @return string HTML for the report table
    */
-  public static function generate_table_report( object $developer_term, string $start_date, string $end_date, $include_free_orders = false ) {
+  public static function generate_developer_table_report( object $developer_term, string $start_date, string $end_date, $product_id = 0,  $include_free_orders = false ) {
   
     self::load_options();
     
@@ -575,10 +650,95 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $orders_data = array();
     
-    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $include_free_orders );
+    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $product_id, $include_free_orders );
 
     foreach ( $paid_order_ids as $order_id ) {
       $order_lines = self::get_single_order_info( $order_id, $developer_term );
+
+      if ( $order_lines ) {
+        $orders_data = array_merge( $orders_data, $order_lines );
+      }
+    }
+    
+    if ( is_array($orders_data) && count($orders_data) ) {
+      
+      $orders_data = self::remove_duplicated_order_lines( $orders_data );
+      
+      // 1. Prepare the body of report 
+      
+      $columns = self::$report_columns['orders'];
+      
+      $report_lines = [];
+      $total = 0;
+      
+      foreach ( $orders_data as $order_line ) {
+        $total += $order_line['after_coupon'];
+        
+        $report_line = [];
+        foreach ( $columns as $key => $name ) {
+          $report_line[] = $order_line[$key];
+        }
+        
+        $report_lines[] = $report_line;
+      }
+
+      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
+
+      // 2. Prepare report summary and payout using individual developer payout settings
+      
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
+      
+      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $payout = $total * $global_profit_ratio;
+      }
+      else {
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
+      }
+      
+      $report_summary = [ [ 
+        0 => 'Total:', 
+        1 => $total,
+        2 => 'Payout:',
+        3 => $payout
+      ] ];
+      
+      $report_data = array_merge( $report_lines, $empty_line, $report_summary );
+      
+      //echo('$columns<pre>' . print_r($columns, 1) . '</pre>');
+      //echo('$report_lines<pre>' . print_r($report_lines, 1) . '</pre>');
+
+      $out = self::format_report_data( $columns, $report_data, self::FILE_FORMAT_HTML );
+    }
+    else {
+      $out = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer {$developer_term->name} )</h2>";
+    }
+    
+    return $out;
+  }
+  
+  
+  /**
+   * Generates HTML table for report about sales of specific product
+   * 
+   * @param int $product_id
+   * @param string $start_date
+   * @param string $end_date
+   * @param boolean $include_free_orders
+   * @return string HTML for the report table
+   */
+  public static function generate_product_table_report( int $product_id, string $start_date, string $end_date, $include_free_orders = false ) {
+  
+    self::load_options();
+    
+    $out = '';
+    
+    $orders_data = array();
+    
+    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, '', $product_id, $include_free_orders );
+
+    foreach ( $paid_order_ids as $order_id ) {
+      $order_lines = self::get_single_order_info( $order_id, null, $product_id );
 
       if ( $order_lines ) {
         $orders_data = array_merge( $orders_data, $order_lines );

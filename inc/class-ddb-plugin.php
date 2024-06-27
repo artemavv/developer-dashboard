@@ -229,8 +229,9 @@ class Ddb_Plugin extends Ddb_Core {
       $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
       $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
       $free_orders    = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+      $product_id     = (int) filter_input( INPUT_POST, 'product_id' );
       $dev_id         = filter_input( INPUT_POST, 'developer_id' );
-    
+   
       switch ( $_POST['ddb-button'] ) {
         case self::ACTION_SAVE_OPTIONS:
          
@@ -246,7 +247,7 @@ class Ddb_Plugin extends Ddb_Core {
         break;
        
         case self::ACTION_GENERATE_REPORT_TABLE:
-          $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $dev_id, $free_orders );
+          $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $dev_id, $product_id, $free_orders );
         break;
        
         case self::ACTION_GENERATE_REPORT_XLSX: // In general case this action is performed by Ddb_Plugi::generate_xlsx_sales_report_for_admin()
@@ -377,14 +378,19 @@ class Ddb_Plugin extends Ddb_Core {
    * @param $developer_id int
    
    */
-  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id, $include_free_orders ) {
+  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id, $product_id, $include_free_orders ) {
     
     $result = "<h2 style='color:red;'>Error: could not generate the report ( $start_date, $end_date, $developer_id )</h2>";
     
-    $developer_term = self::find_developer_term_by_id( $developer_id );
+    if ( $developer_id != 0 ) {
+      $developer_term = self::find_developer_term_by_id( $developer_id );
 
-    if ( $developer_term ) {
-      $result = Ddb_Report_Generator::generate_table_report( $developer_term, $start_date, $end_date, $include_free_orders );
+      if ( $developer_term ) {
+        $result = Ddb_Report_Generator::generate_developer_table_report( $developer_term, $start_date, $end_date, $product_id, $include_free_orders );
+      }
+    }
+    elseif ( $product_id != 0 ) {
+      $result = Ddb_Report_Generator::generate_product_table_report( $product_id, $start_date, $end_date, $include_free_orders );
     }
     
     return $result;
@@ -532,10 +538,13 @@ class Ddb_Plugin extends Ddb_Core {
     $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-30 days") ) );
     $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
     $developer_id = sanitize_text_field( filter_input( INPUT_POST, 'developer_id') ?? 0 );
+    $product_id   = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
     
     $developers = self::get_developer_list_and_settings();
+    $products = self::get_all_developer_products();
     
-    $developer_list = array();
+    $developer_list = array( 0 => '[Not Selected]' );
+    $products_list = array( 0 => '[Not Selected]' ) + $products;
     
     foreach( $developers as $term_id => $dev_data ) {
       $developer_list[$term_id] = $dev_data['name'];
@@ -565,6 +574,15 @@ class Ddb_Plugin extends Ddb_Core {
         'autocomplete'=> true,
         'options'     => $developer_list,
         'value'       => $developer_id,
+        'description' => ''
+			),
+      array(
+				'name'        => "product_id",
+				'type'        => 'dropdown',
+				'label'       => 'Product',
+        'autocomplete'=> true,
+        'options'     => $products_list,
+        'value'       => $product_id,
         'description' => ''
 			),
       array(
