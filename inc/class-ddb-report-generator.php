@@ -9,7 +9,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * 
    * For each developer's product in that order, a separate line is generated - it will go into the final report
    */
-  public static function get_single_order_info( int $order_id, object $developer_term, $product_id = false ) {
+  public static function get_single_order_info( int $order_id, ?object $developer_term, $product_id = false, $deal_products_only = false ) {
   
     $order_lines = false;
     
@@ -17,15 +17,7 @@ class Ddb_Report_Generator extends Ddb_Core {
 
     if ( is_object( $order ) ) {
       
-      if ( $developer_term ) {
-        $order_items_data = self::get_developer_items_in_order( $order, $developer_term );
-      }
-      else {
-        $order_items_data = self::get_product_items_in_order( $order, $product_id );
-      }
-
-      //echo('order_items_data<pre>');print_r($order_items_data);echo('</pre>');
-
+      $order_items_data = self::filter_target_items_in_order( $order, $developer_term, $product_id, $deal_products_only );
       $order_lines = array();
 
       foreach ( $order_items_data as $product ) {
@@ -68,9 +60,23 @@ class Ddb_Report_Generator extends Ddb_Core {
   /**
    * Get the list of matching orders ( those that include products provided by the specified developer),
    * within specified date range and with order sum greater than 0 
+   * 
+   * @param $start_date string
+   * @param $end_date string
+   * @param $developer_name string
+   * @param $report_settings array [ developer_id, product_id, deal_product_id, include_free_orders ] 
    */
-  public static function get_developer_order_ids( string $start_date, string $end_date, string $developer_name = '', $product_id = 0, bool $include_free_orders = false ) {
+  public static function get_target_order_ids( string $start_date, string $end_date, string $developer_name = '', array $report_settings = array() ) {
     
+    $product_id = 0;
+    
+    if ( $report_settings['product_id'] ?? false ) {
+      $product_id = $report_settings['product_id'];
+    }
+    elseif ( $report_settings['deal_product_id'] ?? false ) {
+      $product_id = $report_settings['deal_product_id'];
+    }
+      
     if ( ! $developer_name && ! $product_id ) {
       return false; // not enough search info
     }
@@ -103,7 +109,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       $developer_condition = ' 1 = 1 ';
     }
     
-    if ( $include_free_orders ) {
+    if ( $report_settings['include_free_orders'] ?? false ) {
       $order_totals_condition = " 1 = 1 ";
     }
     else {
@@ -122,56 +128,6 @@ class Ddb_Report_Generator extends Ddb_Core {
       ORDER BY wco.date_created_gmt DESC";
     
     $ids = array();
-    
-    echo('$query_sql<pre>' . print_r($query_sql, 1) . '</pre>');
-    
-    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
-    
-    foreach ($sql_results as $row) {
-      $ids[] = $row['ID'];
-    }
-    return $ids;
-  }
-  
-  
-  /**
-   * Get the list of matching orders ( those that include products specified by ID ),
-   * within specified date range and with order sum greater than 0 
-   */
-  public static function get_product_order_ids( string $start_date, string $end_date, int $product_id, bool $include_free_orders = false ) {
-    
-    global $wpdb;
-    
-    $wp = $wpdb->prefix;
-    
-    $product_condition = $wpdb->prepare( "im.`meta_key` = '_product_id' AND im.`meta_value` = %d ", $product_id );
-    
-    $date_condition = $wpdb->prepare(
-      " ( p.post_date >= %s AND p.post_date <= %s ) ",
-      $start_date . " 00:00:00", 
-      $end_date . " 23:59:59"
-    );
-      
-    if ( $include_free_orders ) {
-      $order_totals_condition = " 1 = 1 ";
-    }
-    else {
-      $order_totals_condition = " pm.`meta_key` = '_order_total' AND ( pm.`meta_value` != '0.00' AND pm.`meta_value` != '0' )";
-    }
-    
-    $query_sql = "SELECT p.ID from {$wp}posts AS p
-      LEFT JOIN `{$wp}postmeta` AS pm on p.`ID` = pm.`post_id`
-      LEFT JOIN `{$wp}woocommerce_order_items` AS oi on p.`ID` = oi.`order_id`
-      LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im on im.`order_item_id` = oi.`order_item_id`
-      WHERE $product_condition
-      AND $date_condition
-      AND $order_totals_condition
-      AND p.post_type = 'shop_order' AND p.post_status = 'wc-completed'
-      ORDER BY p.post_date DESC";
-    
-    $ids = array();
-    
-    //echo('$query_sql<pre>' . print_r($query_sql, 1) . '</pre>');
     
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
     
@@ -257,11 +213,22 @@ class Ddb_Report_Generator extends Ddb_Core {
   }
   
   /**
-   * Returns list of developer products purchased in the specified order. 
+   * Returns list of target product items purchased in the specified order. 
    * 
-   * NOTE: deal products are excluded!
+   * There are two kind of targeting: 
+   * a) get all products from a specific developer ( set by $developer_term )
+   * b) get all products with specific ID ( $developer_term should be null in that case )
+   * 
+   * If $deal_products_only is false, ALL deal products will be excluded
+   * 
+   * If $deal_products_only is false, ONLY deal products will be included
+   * 
+   * @param object $order WC_Order
+   * @param object $developer_term for the case when we search for all developer's products, null otherwise
+   * @param int $target_product_id for the case when we search for specific product, zero otherwise
+   * @param bool $deal_products_only
    */
-  public static function get_developer_items_in_order( object $order, object $developer_term ) {
+  public static function filter_target_items_in_order( object $order, ?object $developer_term, $target_product_id = 0, $deal_products_only = false ) {
     
     $results = array();     
     
@@ -272,72 +239,89 @@ class Ddb_Report_Generator extends Ddb_Core {
       $item_id = $item->get_product_id();
       $is_shop_product = get_post_meta($item_id, '_product_type_single', true);
 
+      $product_matches_target = false; 
+      
+      if ( is_object($developer_term) ) {
+        $product_matches_target = has_term( $developer_term->term_id, 'developer', $item_id );
+      }
+      elseif ( $target_product_id > 0 ) {
+        $product_matches_target = ( $target_product_id == $item_id );
+      }
 
       $item_result = array();
 
-      if ( has_term( $developer_term->term_id, 'developer', $item_id ) && $is_shop_product == 'yes' ) {
+      if ( $product_matches_target ) {
+        
+        // check for the match between target product and filter restriction
+        if ( ($deal_products_only && $is_shop_product != 'yes') || (! $deal_products_only && $is_shop_product == 'yes') ) {
 
-        $item_result['product_id']              = $item_id;
-        $item_result['name']                    = $item['name'];
-        $item_result['price_after_coupon']      = $order->get_item_total( $item, false, true );
-        $item_result['price_before_coupon']     = $order->get_item_subtotal( $item, false, true );
-        $item_result['license_code']            = false;
-        $item_result['is_deal_product']         = false;
-        $item_result['is_shop_product']         = false;
+          $item_result['product_id']              = $item_id;
+          $item_result['name']                    = $item['name'];
+          $item_result['price_after_coupon']      = $order->get_item_total( $item, false, true );
+          $item_result['price_before_coupon']     = $order->get_item_subtotal( $item, false, true );
+          $item_result['license_code']            = false;
+          $item_result['is_deal_product']         = false;
+          $item_result['is_shop_product']         = false;
 
-        $item_meta = $item->get_meta_data();
+          $item_meta = $item->get_meta_data();
 
-        foreach ( $item_meta as $meta_item ) {
+          foreach ( $item_meta as $meta_item ) {
 
-          if ( $meta_item->key == 'bigdeal' && $meta_item->value == 1 ) {
-            $item_result['is_deal_product'] = true;
-          }
-
-          if ($meta_item->key == 'shop_product' && $meta_item->value == 1) {
-            $item_result['is_shop_product'] = true;
-          }
-
-          if (($meta_item->key == 'Coupon Code(s)') or ($meta_item->key == 'License Code(s)') ) {
-            $codes = $meta_item->value;
-
-            if ( is_array($codes) ) {
-              $item_result['license_code'] = implode(', ', $codes);
-            } else {
-              $item_result['license_code'] = $codes;
+            if ( $meta_item->key == 'bigdeal' && $meta_item->value == 1 ) {
+              $item_result['is_deal_product'] = true;
             }
+
+            if ( $meta_item->key == 'shop_product' && $meta_item->value == 1 ) {
+              $item_result['is_shop_product'] = true;
+            }
+
+            if ( ($meta_item->key == 'Coupon Code(s)') or ($meta_item->key == 'License Code(s)') ) {
+              $codes = $meta_item->value;
+
+              if ( is_array($codes) ) {
+                $item_result['license_code'] = implode(', ', $codes);
+              } else {
+                $item_result['license_code'] = $codes;
+              }
+            }
+
+            if ( ($meta_item->key == 'developer_name') ) {
+              $item_result['developer_name'] = $meta_item->value;
+            }
+
+          } // endforeach meta
+
+          if ( is_object($developer_term) && $item_result['developer_name'] != $developer_term->name ) {
+            continue; // if developer is specified, then exclude products from other developers
           }
 
-          if ( ($meta_item->key == 'developer_name') ) {
-            $item_result['developer_name'] = $meta_item->value;
+          if ( ! $deal_products_only && $item_result['is_deal_product'] ) {
+            continue; // exclude deal products if we are NOT looking for deal products
           }
 
-        } // endforeach
+          if ( $deal_products_only && ! $item_result['is_deal_product'] ) {
+            continue; // exclude non-deal products if we are looking for deal products
+          }
+          
+          if ( $deal_products_only && $item_result['is_shop_product'] ) {
+            continue; // exclude shop products if we are looking for deal products
+          }
 
-        if ( $item_result['developer_name'] != $developer_term->name ) {
-          continue;
-        }
+          self::log(['$item_result', $item_result ] );
 
-        if ( $item_result['is_deal_product'] ) {
-          continue;
-        }
-
-        if ( ! $item_result['is_shop_product'] ) {
-          continue;
-        }
-
-        self::log(['$item_result', $item_result ] );
-
-        $results[] = $item_result;
+          $results[] = $item_result;
+          
+        } // end if matched filter restriction
+        
       } // end if correct product developer
 
-    } // end for each item
+    } // end foreach item
       
     self::log(['$results', $results ] );
     
     return $results;
   }
 
-  
   	
 	/**
 	 * Send headers for browser to download the file
@@ -517,7 +501,9 @@ class Ddb_Report_Generator extends Ddb_Core {
   }
   
   
-  
+  /**
+   * Called from Developer Dashboard (frontend)
+   */
   public static function validate_and_generate_xlsx_report_for_developer() {
 
     $developer_term = Ddb_Core::find_current_developer_term();
@@ -533,10 +519,10 @@ class Ddb_Report_Generator extends Ddb_Core {
       if ( $validation_failed === false ) {
         switch ( $action ) { // this may be expanded in the future, therefore using switch
           case Ddb_Frontend::ACTION_DOWNLOAD_ORDERS_REPORT: 
-            $report_generated = self::generate_xlsx_report( $developer_term, $start_date, $end_date );
+            $report_generated_successfully = self::generate_xlsx_report( $developer_term, $start_date, $end_date );
 
-            if ( $report_generated ) {
-              exit();
+            if ( $report_generated_successfully ) {
+              exit(); // generate_xlsx_report() produced an output of XLSX file, so we must stop any further output
             }
           break;
         }
@@ -547,13 +533,18 @@ class Ddb_Report_Generator extends Ddb_Core {
   /**
    * Generates XLSX file for the developer
    * 
+   * May be called both by admin (backend) and developer (frontend)
+   * 
+   * If called by developer, $report_settings is empty, but $developer_term must be object
+   * 
+   * 
    * @param object $developer_term
    * @param string $start_date
    * @param string $end_date
-   * @param boolean $include_free_orders
+   * @param array $report_settings
    * @return boolean
    */
-  public static function generate_xlsx_report( object $developer_term, string $start_date, string $end_date, $product_id = 0, bool $include_free_orders = false ) {
+  public static function generate_xlsx_report( ?object $developer_term, string $start_date, string $end_date, array $report_settings = array() ) {
   
     self::load_options();
     
@@ -561,99 +552,146 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $orders_data = array();
     
-    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $product_id, $include_free_orders );
+    $developer_name = is_object( $developer_term ) ? $developer_term->name : '';
 
-    foreach ( $paid_order_ids as $order_id ) {
-      $order_lines = self::get_single_order_info( $order_id, $developer_term );
-
-      if ( $order_lines ) {
-        $orders_data = array_merge( $orders_data, $order_lines );
-      }
+    $product_id = 0;
+    $deal_products_only = false;
+    
+    if ( $report_settings['product_id'] ?? false ) {
+      $product_id = $report_settings['product_id'];
+    }
+    elseif ( $report_settings['deal_product_id'] ?? false ) {
+      $product_id = $report_settings['deal_product_id'];
+      $deal_products_only = true;
     }
     
-    if ( is_array($orders_data) && count($orders_data) ) {
+    if ( $developer_name || $product_id ) {
       
-      $orders_data = self::remove_duplicated_order_lines( $orders_data );
+      $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings );
       
-      // 1. Prepare the body of report 
-      
-      $report_is_ok = true;
-      
-      $columns = self::$report_columns['orders'];
-      $report_lines = [];
-      $total = 0;
-      
-      foreach ( $orders_data as $order_line ) {
-        $total += $order_line['after_coupon'];
-        
-        $report_line = [];
-        foreach ( $columns as $key => $name ) {
-          $report_line[] = $order_line[$key];
+      foreach ( $paid_order_ids as $order_id ) {
+        $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only );
+
+        if ( $order_lines ) {
+          $orders_data = array_merge( $orders_data, $order_lines );
         }
-        
-        $report_lines[] = $report_line;
       }
 
-      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
+      if ( is_array($orders_data) && count($orders_data) ) {
 
-      // 2. Prepare report summary and payout using individual developer payout settings
-      
-      $payout_settings = self::find_developer_payout_settings( $developer_term );
-      
-      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
-        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
-        $payout = $total * $global_profit_ratio;
-      }
-      else {
-        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
-      }
-      
-      $report_summary = [ [ 
-        0 => 'Total:', 
-        1 => $total,
-        2 => 'Payout:',
-        3 => $payout
-      ] ];
-      
-      $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $empty_line, $report_summary );
-      
-      
-      //echo('222 $report_data<pre>' . print_r($report_data, 1) . '</pre>'); die();
-      
-      $filename = 'report_from_' . $start_date . '_to_' . $end_date;
-    
-      self::echo_headers( $filename, self::FILE_FORMAT_XLSX );
+        $orders_data = self::remove_duplicated_order_lines( $orders_data );
 
-      $writer = new XLSXWriter();
-      $writer->writeSheet( $report_data );
-      $writer->writeToStdOut();
+        // Prepare the body of report 
+
+        $report_is_ok = true;
+
+        $columns = self::$report_columns['orders'];
+        $report_lines = [];
+        $total = 0;
+
+        foreach ( $orders_data as $order_line ) {
+          $total += $order_line['after_coupon'];
+
+          $report_line = [];
+          foreach ( $columns as $key => $name ) {
+            $report_line[] = $order_line[$key];
+          }
+
+          $report_lines[] = $report_line;
+        }
+
+
+
+        $report_summary = array(
+            [ 0 => '~~~~~~~~~~~~~~~~' ], 
+            self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
+        );
+
+        $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $report_summary );
+
+        $filename = 'report_from_' . $start_date . '_to_' . $end_date;
+
+        self::echo_headers( $filename, self::FILE_FORMAT_XLSX );
+
+        $writer = new XLSXWriter();
+        $writer->writeSheet( $report_data );
+        $writer->writeToStdOut();
+      }
     }
     
     return $report_is_ok;
   }
   
+  /**
+   * Generates array with payout data for the specified developer
+   * 
+   * If developer is not provided, then calculate just the totals 
+   * 
+   * @param float $total
+   * @param object $developer_term
+   * @return array
+   */
+  public static function prepare_report_summary( float $total, ?object $developer_term ) {
+    
+    $report_summary = [ 
+      0 => 'Total:', 
+      1 => $total
+    ];
+    
+    if ( is_object( $developer_term ) ) {
+      $payout_settings = self::find_developer_payout_settings( $developer_term );
+
+      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
+        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+        $payout = $total * $global_profit_ratio;
+      }
+      else {
+        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
+      }
+
+      $report_summary[2] = 'Payout:';
+      $report_summary[3] = $payout;
+    }
+
+    return $report_summary;
+  }
   
   /**
-   * Generates HTML table for report about all products of specified developer
+   * Generates HTML table for report about some products, based on $report_settings
+   * 
+   * a) $developer_term is provided: report will show all products of specified developer
+   * b) $developer_term is null: report will show all sales of a product specified by $report_settings
    * 
    * @param object $developer_term
    * @param string $start_date
    * @param string $end_date
-   * @param boolean $include_free_orders
+   * @param array $report_settings array [ developer_id, product_id, deal_product_id, include_free_orders ] 
    * @return string HTML for the report table
    */
-  public static function generate_developer_table_report( object $developer_term, string $start_date, string $end_date, $product_id = 0,  $include_free_orders = false ) {
+  public static function generate_table_report( ?object $developer_term, string $start_date, string $end_date, array $report_settings ) {
   
     self::load_options();
     
     $out = '';
     
     $orders_data = array();
-    
-    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, $developer_term->name, $product_id, $include_free_orders );
 
+    $developer_name = is_object( $developer_term ) ? $developer_term->name : '';
+    
+    $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings );
+
+    $deal_products_only = false;
+    
+    if ( $report_settings['product_id'] ?? false ) {
+      $product_id = $report_settings['product_id'];
+    }
+    elseif ( $report_settings['deal_product_id'] ?? false ) {
+      $product_id = $report_settings['deal_product_id'];
+      $deal_products_only = true;
+    }
+    
     foreach ( $paid_order_ids as $order_id ) {
-      $order_lines = self::get_single_order_info( $order_id, $developer_term );
+      $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only );
 
       if ( $order_lines ) {
         $orders_data = array_merge( $orders_data, $order_lines );
@@ -664,7 +702,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       
       $orders_data = self::remove_duplicated_order_lines( $orders_data );
       
-      // 1. Prepare the body of report 
+      // Prepare the body of report 
       
       $columns = self::$report_columns['orders'];
       
@@ -682,32 +720,13 @@ class Ddb_Report_Generator extends Ddb_Core {
         $report_lines[] = $report_line;
       }
 
-      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
+      $report_summary = array(
+        [ 0 => '~~~~~~~~~~~~~~~~' ],
+        self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
+      );
 
-      // 2. Prepare report summary and payout using individual developer payout settings
+      $report_data = array_merge( $report_lines, $report_summary );
       
-      $payout_settings = self::find_developer_payout_settings( $developer_term );
-      
-      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
-        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
-        $payout = $total * $global_profit_ratio;
-      }
-      else {
-        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
-      }
-      
-      $report_summary = [ [ 
-        0 => 'Total:', 
-        1 => $total,
-        2 => 'Payout:',
-        3 => $payout
-      ] ];
-      
-      $report_data = array_merge( $report_lines, $empty_line, $report_summary );
-      
-      //echo('$columns<pre>' . print_r($columns, 1) . '</pre>');
-      //echo('$report_lines<pre>' . print_r($report_lines, 1) . '</pre>');
-
       $out = self::format_report_data( $columns, $report_data, self::FILE_FORMAT_HTML );
     }
     else {
@@ -716,92 +735,6 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     return $out;
   }
-  
-  
-  /**
-   * Generates HTML table for report about sales of specific product
-   * 
-   * @param int $product_id
-   * @param string $start_date
-   * @param string $end_date
-   * @param boolean $include_free_orders
-   * @return string HTML for the report table
-   */
-  public static function generate_product_table_report( int $product_id, string $start_date, string $end_date, $include_free_orders = false ) {
-  
-    self::load_options();
-    
-    $out = '';
-    
-    $orders_data = array();
-    
-    $paid_order_ids = self::get_developer_order_ids( $start_date, $end_date, '', $product_id, $include_free_orders );
-
-    foreach ( $paid_order_ids as $order_id ) {
-      $order_lines = self::get_single_order_info( $order_id, null, $product_id );
-
-      if ( $order_lines ) {
-        $orders_data = array_merge( $orders_data, $order_lines );
-      }
-    }
-    
-    if ( is_array($orders_data) && count($orders_data) ) {
-      
-      $orders_data = self::remove_duplicated_order_lines( $orders_data );
-      
-      // 1. Prepare the body of report 
-      
-      $columns = self::$report_columns['orders'];
-      
-      $report_lines = [];
-      $total = 0;
-      
-      foreach ( $orders_data as $order_line ) {
-        $total += $order_line['after_coupon'];
-        
-        $report_line = [];
-        foreach ( $columns as $key => $name ) {
-          $report_line[] = $order_line[$key];
-        }
-        
-        $report_lines[] = $report_line;
-      }
-
-      $empty_line = [ [ 0 => '~~~~~~~~~~~~~~~~' ] ];
-
-      // 2. Prepare report summary and payout using individual developer payout settings
-      
-      $payout_settings = self::find_developer_payout_settings( $developer_term );
-      
-      if ( $payout_settings['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) {
-        $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
-        $payout = $total * $global_profit_ratio;
-      }
-      else {
-        $payout = $total * $payout_settings['profit_ratio'] * 0.01;
-      }
-      
-      $report_summary = [ [ 
-        0 => 'Total:', 
-        1 => $total,
-        2 => 'Payout:',
-        3 => $payout
-      ] ];
-      
-      $report_data = array_merge( $report_lines, $empty_line, $report_summary );
-      
-      //echo('$columns<pre>' . print_r($columns, 1) . '</pre>');
-      //echo('$report_lines<pre>' . print_r($report_lines, 1) . '</pre>');
-
-      $out = self::format_report_data( $columns, $report_data, self::FILE_FORMAT_HTML );
-    }
-    else {
-      $out = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer {$developer_term->name} )</h2>";
-    }
-    
-    return $out;
-  }
-
     
   public static function format_report_data( $headers, $data, $format = self::FILE_FORMAT_CSV ) {
   

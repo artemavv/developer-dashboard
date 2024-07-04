@@ -226,11 +226,12 @@ class Ddb_Plugin extends Ddb_Core {
     
     if ( isset( $_POST['ddb-button'] ) ) {
       
-      $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
-      $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
-      $free_orders    = (bool) filter_input( INPUT_POST, 'include_free_orders' );
-      $product_id     = (int) filter_input( INPUT_POST, 'product_id' );
-      $dev_id         = filter_input( INPUT_POST, 'developer_id' );
+      $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
+      $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
+      $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+      $product_id       = (int) filter_input( INPUT_POST, 'product_id' );
+      $deal_product_id  = (int) filter_input( INPUT_POST, 'deal_product_id' );
+      $dev_id           = filter_input( INPUT_POST, 'developer_id' );
    
       switch ( $_POST['ddb-button'] ) {
         case self::ACTION_SAVE_OPTIONS:
@@ -247,7 +248,9 @@ class Ddb_Plugin extends Ddb_Core {
         break;
        
         case self::ACTION_GENERATE_REPORT_TABLE:
-          $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $dev_id, $product_id, $free_orders );
+          
+          $report_settings = [ 'developer_id' => $dev_id, 'product_id' => $product_id, 'deal_product_id' => $deal_product_id , 'include_free_orders' => $free_orders ];
+          $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $report_settings );
         break;
        
         case self::ACTION_GENERATE_REPORT_XLSX: // In general case this action is performed by Ddb_Plugi::generate_xlsx_sales_report_for_admin()
@@ -255,7 +258,7 @@ class Ddb_Plugin extends Ddb_Core {
           // generate_xlsx_sales_report_for_admin() stops script execution when it found some reports.
           // If we are here, then that function found nothing. 
           
-          $result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id )</h2>";
+          $result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id, product ID  $product_id )</h2>";
           
         break;
       }
@@ -375,22 +378,24 @@ class Ddb_Plugin extends Ddb_Core {
    * 
    * @param $start_date string date in format Y-m-d
    * @param $end_date string date in format Y-m-d 
-   * @param $developer_id int
+   * @param $report_settings array [ developer_id, product_id, deal_product_id, include_free_orders ] 
    
    */
-  public static function generate_table_sales_report_for_admin( $start_date, $end_date, $developer_id, $product_id, $include_free_orders ) {
+  public static function generate_table_sales_report_for_admin( string $start_date, string $end_date, array $report_settings ) {
     
-    $result = "<h2 style='color:red;'>Error: could not generate the report ( $start_date, $end_date, $developer_id )</h2>";
+    $result = "<h2 style='color:red;'>Error: could not generate the report ( $start_date, $end_date )</h2>";
     
+    
+    $developer_id = $report_settings['developer_id'] ?? 0;
+    $product_id = $report_settings['product_id'] ?? 0;
+    $deal_product_id = $report_settings['deal_product_id'] ?? 0;
+      
     if ( $developer_id != 0 ) {
       $developer_term = self::find_developer_term_by_id( $developer_id );
-
-      if ( $developer_term ) {
-        $result = Ddb_Report_Generator::generate_developer_table_report( $developer_term, $start_date, $end_date, $product_id, $include_free_orders );
-      }
+      $result = Ddb_Report_Generator::generate_table_report( $developer_term, $start_date, $end_date, $report_settings );
     }
-    elseif ( $product_id != 0 ) {
-      $result = Ddb_Report_Generator::generate_product_table_report( $product_id, $start_date, $end_date, $include_free_orders );
+    elseif ( $product_id || $deal_product_id ) {
+      $result = Ddb_Report_Generator::generate_table_report( null, $start_date, $end_date, $report_settings );
     }
     
     return $result;
@@ -401,15 +406,20 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public static function generate_xlsx_sales_report_for_admin() {
 
-    $start_date     = filter_input( INPUT_POST, self::FIELD_DATE_START );
-    $end_date       = filter_input( INPUT_POST, self::FIELD_DATE_END );
-    $free_orders    = (bool) filter_input( INPUT_POST, 'include_free_orders' );
-    $dev_id         = filter_input( INPUT_POST, 'developer_id' );
+    $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
+    $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
+    $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+    $product_id       = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
+    $deal_product_id  = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
+    $dev_id           = filter_input( INPUT_POST, 'developer_id' );
 
-    $developer_term = self::find_developer_term_by_id( $dev_id );
-
-    if ( $developer_term ) {
-      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $free_orders );
+    if ( $dev_id || $product_id || $deal_product_id ) {
+      
+      $developer_term = $dev_id ? self::find_developer_term_by_id( $dev_id ) : null;
+      
+      $report_settings = [ 'product_id' => $product_id, 'deal_product_id' => $deal_product_id, 'include_free_orders' => $free_orders ];
+      
+      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $report_settings );
 
       if ( $report_generated ) {
         exit();
@@ -535,16 +545,19 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public function render_report_generator_form() {
     
-    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-30 days") ) );
-    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
-    $developer_id = sanitize_text_field( filter_input( INPUT_POST, 'developer_id') ?? 0 );
-    $product_id   = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
+    $start_date         = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-30 days") ) );
+    $end_date           = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
+    $developer_id       = sanitize_text_field( filter_input( INPUT_POST, 'developer_id') ?? 0 );
+    $product_id         = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
+    $deal_product_id    = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
     
-    $developers = self::get_developer_list_and_settings();
-    $products = self::get_all_developer_products();
+    $developers     = self::get_developer_list_and_settings();
+    $products       = self::get_all_developer_products();
+    $deal_products  = self::get_all_deal_products();
     
-    $developer_list = array( 0 => '[Not Selected]' );
-    $products_list = array( 0 => '[Not Selected]' ) + $products;
+    $developer_list       = array( 0 => '[Not Selected]' );
+    $products_list        = array( 0 => '[Not Selected]' ) + $products;
+    $deal_products_list   = array( 0 => '[Not Selected]' ) + $deal_products;
     
     foreach( $developers as $term_id => $dev_data ) {
       $developer_list[$term_id] = $dev_data['name'];
@@ -579,10 +592,19 @@ class Ddb_Plugin extends Ddb_Core {
       array(
 				'name'        => "product_id",
 				'type'        => 'dropdown',
-				'label'       => 'Product',
+				'label'       => 'Shop Product',
         'autocomplete'=> true,
         'options'     => $products_list,
         'value'       => $product_id,
+        'description' => ''
+			),
+      array(
+				'name'        => "deal_product_id",
+				'type'        => 'dropdown',
+				'label'       => 'Deal Product',
+        'autocomplete'=> true,
+        'options'     => $deal_products_list,
+        'value'       => $deal_product_id,
         'description' => ''
 			),
       array(
@@ -657,6 +679,7 @@ class Ddb_Plugin extends Ddb_Core {
       <table class="ddb-table">
         <thead>
           <th>Developer name</th>
+          <th>Developer account</th>
           <?php 
           
             $header_info = self::get_developer_fields(0, array());
@@ -672,9 +695,27 @@ class Ddb_Plugin extends Ddb_Core {
             
               $developer_setting_fields = self::get_developer_fields( $dev_id, $dev_data );
             
+              if ( $dev_data['user_account'] ) {
+                
+                $dev_user_id = $dev_data['user_account'];
+                
+                $switch_link = wp_nonce_url( add_query_arg( array(
+                  'action'  => 'switch_to_user',
+                  'user_id' => $dev_user_id,
+                  'nr'      => 1,
+                ), wp_login_url() ), "switch_to_user_{$dev_user_id}" );
+    
+                $account_links = 
+                  ' [<a target="_blank" href="/wp-admin/user-edit.php?user_id=' . $dev_user_id . '">Edit</a>] ' . 
+                  ' [<a target="_blank" href="' . $switch_link . '">Switch to</a>] ';
+              }
+              else {
+                $account_links = '';
+              }
             ?>
             <tr>
               <td><a target="_blank" href="/developer/<?php echo $dev_data['slug']; ?>"><?php echo $dev_data['name']; ?></a></td>
+              <td><?php echo $account_links; ?> </td>
               <?php echo $developer_setting_fields; ?>
             </tr>
           <?php endforeach; ?>

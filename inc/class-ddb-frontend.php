@@ -165,7 +165,9 @@ class Ddb_Frontend extends Ddb_Core {
   }
   
   /**
-   * Check the form input and returns HTML with report of requested type+
+   * Check the form input and returns HTML with report of requested type
+   * 
+   * Called from Developer Dashboard (frontend)
    * 
    * @param object $developer_term WP_Term object
    * @param string $start_date date in Y-m-d format
@@ -184,7 +186,7 @@ class Ddb_Frontend extends Ddb_Core {
         
         $report_data = array();
     
-        $paid_order_ids = Ddb_Report_Generator::get_developer_order_ids( $start_date, $end_date, $developer_term->name );
+        $paid_order_ids = Ddb_Report_Generator::get_target_order_ids( $start_date, $end_date, $developer_term->name );
 
         foreach ( $paid_order_ids as $order_id ) {
           $order_lines = Ddb_Report_Generator::get_single_order_info( $order_id, $developer_term );
@@ -352,7 +354,7 @@ class Ddb_Frontend extends Ddb_Core {
 
       if ( $current_day > 15 ) {
         $month1 = date('F'); // current month
-        $month2 = date('F' + time() - 30 * 86400); // next month
+        $month2 = date('F', time() - 30 * 86400); // next month
       }
       else {
         $month1 = date('F', time() - 30 * 86400); // previous month
@@ -385,9 +387,7 @@ class Ddb_Frontend extends Ddb_Core {
         
       if ( is_array($report_data) && count($report_data) ) {
         
-        $num = count($report_data);
-        
-        //$out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
+        // $num = count($report_data); $out = "<h3>Last {$num} orders with products by {$developer_term->name}</h3>";
         $out = self::render_orders_list( $report_data, 'orders' );
       }
       else {
@@ -486,57 +486,6 @@ class Ddb_Frontend extends Ddb_Core {
       $action_results = self::render_last_n_deal_orders( $developer_term );
     }
     
-    /*
-    $start_date   = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-7 days") ) );
-    $end_date     = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
-    
-    $report_field_set = array(
-      array(
-				'name'        => "report_date_start",
-				'type'        => 'date',
-				'label'       => 'Start date',
-				'default'     => '',
-        'min'         => self::get_earliest_allowed_date(),
-        'value'       => $start_date,
-        'description' => '' //'Earliest allowed date is ' . date(' F d', strtotime( self::get_earliest_allowed_date() ) )
-			),
-      array(
-				'name'        => "report_date_end",
-				'type'        => 'date',
-				'label'       => 'End date',
-				'default'     => '',
-        'min'         => self::get_earliest_allowed_date(),
-        'value'       => $end_date,
-        'description' => ''
-			),
-		);
-
-    echo $action_results;
-    
-    ?> 
-
-    <h3>Create a new report</h3>
-    <form method="POST" >
-      
-      <table class="ddb-report-form-table">
-        <tbody>
-          <?php self::display_field_set( $report_field_set ); ?>
-        </tbody>
-      </table>
-      
-      <p class="submit">  
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" 
-              value="<?php echo self::ACTION_SHOW_ORDERS_REPORT; ?>" style="background-color: bisque;" />
-       <input type="submit" id="ddb-button-generate" name="ddb-button" class="button button-primary" 
-              value="<?php echo self::ACTION_DOWNLOAD_ORDERS_REPORT; ?>" style="background-color: gainsboro;"/>
-      </p>
-      
-    </form>
-    <?php 
-    $out = ob_get_contents();
-		ob_end_clean();
-
-    */
     return $action_results; 
   }
   

@@ -464,7 +464,7 @@ class Ddb_Core {
   
   
   /**
-   * Finds all active WooCommerce products
+   * Finds all active WooCommerce products linked to a developer
    * 
    * returns array[ product_id => product_name ]
    * 
@@ -481,6 +481,39 @@ class Ddb_Core {
         JOIN {$wp}terms t                   ON tt.term_id = t.term_id
 				WHERE p.`post_status` = 'publish' AND p.`post_type` = 'product'
         AND tt.taxonomy = 'developer' ";
+          
+    $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
+
+    $products = array();
+    
+    foreach ( $sql_results as $row ) {
+      
+      $product_id     = $row['pid'];
+      $product_name   = $row['name'];
+      
+      $products[$product_id] = $product_name;
+    }
+    
+    return $products;
+  }
+  
+  
+  /**
+   * Finds all active WooCommerce products marked as "deal products"
+   * 
+   * returns array[ product_id => product_name ]
+   * 
+   * @global object $wpdb
+   * @return array
+   */
+  public static function get_all_deal_products() {
+    global $wpdb;
+    $wp = $wpdb->prefix;
+    
+    $query_sql = "SELECT p.ID AS pid, p.post_title AS name from {$wp}posts AS p
+        JOIN {$wp}postmeta AS pm                 ON pm.post_id = p.ID
+				WHERE p.`post_status` = 'publish' AND p.`post_type` = 'product'
+        AND pm.`meta_key` = '_product_big_deal' AND pm.`meta_value` = 'yes' ";
           
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
 
