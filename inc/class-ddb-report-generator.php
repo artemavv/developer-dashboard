@@ -20,7 +20,10 @@ class Ddb_Report_Generator extends Ddb_Core {
       $order_items_data = self::filter_target_items_in_order( $order, $developer_term, $product_id, $deal_products_only );
       $order_lines = array();
 
-      foreach ( $order_items_data as $product ) {
+      self::log( " $order_id ORDER ITEMS " );
+      self::log( $order_items_data );
+      
+      foreach ( $order_items_data as $product_arr ) {
 
         $completed_date = $order->get_date_completed();
         $date_formatted = '?';
@@ -42,18 +45,68 @@ class Ddb_Report_Generator extends Ddb_Core {
           'email'           => $order->get_billing_email(),
           'address'         => $order->get_formatted_billing_address(),
           'date'            => $date_formatted,
-          'product_name'    => $product['name'],
-          'price'           => $product['price_before_coupon'],
-          'after_coupon'    => $product['price_after_coupon'],
-          'license_code'    => trim( strip_tags( $product['license_code'] ) )
+          'product_name'    => $product_arr['name'],
+          'price'           => $product_arr['price_before_coupon'],
+          'after_coupon'    => $product_arr['price_after_coupon'],
+          'license_code'    => trim( strip_tags( $product_arr['license_code'] ) ),
+          'total_refunded'  => $order->get_total_refunded(),
+					'count_refunded'  => $order->get_item_count_refunded(),
         );
         
         $order_line['full_name'] = $order_line['first_name'] . ' ' . $order_line['last_name'];
 
+        
+        // if order has been refunded, check for the case with the partial refund 
+        if ( $order_line['total_refunded'] || $order_line['count_refunded'] ) {
+
+          self::log( " $order_id ORDER - CHECK FOR REFUND " );
+
+          $order_line['developer_refunded'] = 0;
+
+          $order_refunds = $order->get_refunds();
+
+          // Check for the case when refunds are linked to specific order item(s)
+          foreach( $order_refunds as $refund ) {
+            foreach( $refund->get_items() as $key => $item ) {
+
+              self::log( "Refunded item $key ");
+              self::log( [$item->get_total(), $item->get_product_id(), $item->get_name() ] );
+
+              foreach ( $order_items_data as $product_arr ) {
+
+                if ($product_arr['product_id'] == $item->get_product_id() ) {
+                  $refunded_sum = $item->get_total(); // $order_product['price_after_coupon'];
+                  $refunded_quantity = $item->get_quantity(); // returns negative number e.g. -1
+
+                  $order_line['developer_refunded'] += $refunded_sum;
+                  break;
+                }
+              } 
+            }
+          }
+          
+          // Check for the case when the refund is linked to the order itself.
+          // If the order consists of a single item, then we can attribure refund to tha item
+          
+          if ( $product_arr['sole_item_in_order'] ) {
+            foreach( $order_refunds as $refund ) {
+              
+              $refunded_sum = $refund->get_total();
+              
+              self::log( " $order_id ORDER REFUND SIGLE SUM " . $refunded_sum );
+              
+              
+              $order_line['developer_refunded'] += abs($refunded_sum);
+            }
+          }
+        }
+        
         $order_lines[] = $order_line;
       }
     }
 
+    self::log( " $order_id ORDER LINES " );
+    self::log( $order_lines );
     return $order_lines;
   }
 
@@ -234,6 +287,8 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $items = $order->get_items();
 
+    $number_of_items  = count( $items );
+    
     foreach ( $items as $key => $item ) {
 
       $item_id = $item->get_product_id();
@@ -262,6 +317,7 @@ class Ddb_Report_Generator extends Ddb_Core {
           $item_result['license_code']            = false;
           $item_result['is_deal_product']         = false;
           $item_result['is_shop_product']         = false;
+          $item_result['sole_item_in_order']      = false;
 
           $item_meta = $item->get_meta_data();
 
@@ -318,6 +374,10 @@ class Ddb_Report_Generator extends Ddb_Core {
     } // end foreach item
       
     self::log(['$results', $results ] );
+    
+    if ( $number_of_items == 1 && count($results) == 1 ) {
+      $results[0]['sole_item_in_order'] = true;
+    }
     
     return $results;
   }
@@ -588,8 +648,16 @@ class Ddb_Report_Generator extends Ddb_Core {
         $columns = self::$report_columns['orders'];
         $report_lines = [];
         $total = 0;
+        $total_refunded = 0;
+        $orders_refunded = 0;
 
         foreach ( $orders_data as $order_line ) {
+
+          if ( $order_line['developer_refunded'] > 0 ) {
+            $total_refunded += $order_line['developer_refunded'];
+            $orders_refunded++;
+          }
+
           $total += $order_line['after_coupon'];
 
           $report_line = [];
@@ -600,11 +668,13 @@ class Ddb_Report_Generator extends Ddb_Core {
           $report_lines[] = $report_line;
         }
 
-
+        $total -= $total_refunded;
+      
 
         $report_summary = array(
-            [ 0 => '~~~~~~~~~~~~~~~~' ], 
-            self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
+          [ 0 => '~~~~~~~~~~~~~~~~' ],
+          self::prepare_refund_summary( $total_refunded, $orders_refunded ),
+          self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
         );
 
         $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $report_summary );
@@ -655,6 +725,27 @@ class Ddb_Report_Generator extends Ddb_Core {
 
     return $report_summary;
   }
+    /**
+   * Generates array with refund data for the report
+   * 
+   * If developer is not provided, then calculate just the totals 
+   * 
+   * @param float $total_refunded
+   * @param int $count number of orders refunded
+   * @return array
+   */
+  public static function prepare_refund_summary( float $total_refunded, int $count ) {
+    
+    $refund_summary = [ 
+      0 => 'Total refunded:', 
+      1 => $total_refunded,
+      2 => 'Number of refunded orders:',
+      3 => $count
+    ];
+
+    return $refund_summary;
+  }
+  
   
   /**
    * Generates HTML table for report about some products, based on $report_settings
@@ -708,8 +799,16 @@ class Ddb_Report_Generator extends Ddb_Core {
       
       $report_lines = [];
       $total = 0;
+      $total_refunded = 0;
+      $orders_refunded = 0;
       
       foreach ( $orders_data as $order_line ) {
+        
+        if ( $order_line['developer_refunded'] > 0 ) {
+          $total_refunded += $order_line['developer_refunded'];
+          $orders_refunded++;
+        }
+        
         $total += $order_line['after_coupon'];
         
         $report_line = [];
@@ -720,8 +819,11 @@ class Ddb_Report_Generator extends Ddb_Core {
         $report_lines[] = $report_line;
       }
 
+      $total -= $total_refunded;
+      
       $report_summary = array(
         [ 0 => '~~~~~~~~~~~~~~~~' ],
+        self::prepare_refund_summary( $total_refunded, $orders_refunded ),
         self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
       );
 

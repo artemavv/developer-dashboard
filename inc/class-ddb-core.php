@@ -109,7 +109,8 @@ class Ddb_Core {
       'date'            => 'Order date',
       'product_name'    => 'Product',
       'after_coupon'    => 'Paid price',
-      'license_code'    => 'License code'
+      'license_code'    => 'License code',
+      'developer_refunded' => 'Refunded amount'
     ],
     'orders' => [
       'order_id'        => 'Order ID',
@@ -118,7 +119,8 @@ class Ddb_Core {
       'email'           => 'Email',
       'product_name'    => 'Product',
       'after_coupon'    => 'Paid price',
-      'license_code'    => 'License code'
+      'license_code'    => 'License code',
+      'developer_refunded' => 'Refunded amount'
     ],
   ];
   
