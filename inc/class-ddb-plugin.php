@@ -13,6 +13,9 @@ class Ddb_Plugin extends Ddb_Core {
 	const CHECK_RESULT_OK = 'ok';
   
   protected $developers = array();
+	
+	public $plugin_root = '';
+	public $cron_generation = false;
     
   public function __construct( $plugin_root ) {
 
@@ -36,10 +39,15 @@ class Ddb_Plugin extends Ddb_Core {
       'manage_categories' => false,
     ));
    
-    add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'modify_email_notification_for_new_developers' ), 10, 3 );
+		// modify_email_notification_for_new_developers() was removed -- check commit history for this code which sends the email about reports.
+    // add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'modify_email_notification_for_new_developers' ), 10, 3 );
+		
     add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'attach_developer_taxonomy_to_new_user' ), 10, 3 );
     
     add_filter( 'the_title', array( 'Ddb_Plugin', 'custom_title_for_developer_dashboard' ), 10, 2 );
+		
+		// set up cron handling and events scheduling
+		$this->cron_generation = new Ddb_Cron_Generation();
 	}
 
 	public function initialize() {
@@ -101,79 +109,6 @@ class Ddb_Plugin extends Ddb_Core {
     }
     
     return $post_title;
-  }
-  
-  /**
-   * Callback function for 'wp_new_user_notification_email' filter.
-   * 
-   * This filter is applied in wp_new_user_notification() when a new user is created and email notification is sent to the user
-   * 
-   * The purpose of this callback is to modify email message for the case when it is sent to a developer
-   * 
-   * @param array   $email {
-   *     Used to build wp_mail().
-   *
-   *     @type string $to      The intended recipient - New user email address.
-   *     @type string $subject The subject of the email.
-   *     @type string $message The body of the email.
-   *     @type string $headers The headers of the email.
-   * }
-   * @param WP_User $user     User object for new user.
-   * @param string  $blogname The site title.
-   */
-  public function modify_email_notification_for_new_developers( array $email, object $user, $blogname ) {
-    
-    
-    $user_roles = implode( '', $user->roles );
-    
-    if ( $user_roles === self::DEV_ROLE_NAME ) { // this user is a developer
-      
-      ob_start();
-      ?>
-    <h3>Hey {company_name} Team,</h3>
-    
-    <p class="c0"><span class="c9">We&#39;re thrilled to announce a major upgrade to how you manage your sales with Audio Plugin Deals! We&#39;ve just launched a brand-new, personalized </span><strong>Developer Dashboard</strong><span class="c5">&nbsp;that puts you in complete control.</span></p><p class="c0"><span class="c14 c7">What&#39;s in it for you?</span></p>
-    
-    <ul class="c4 lst-kix_list_1-0 start">
-        <li class="c8 li-bullet-0"><strong>Real-Time Sales Tracking:</strong><span class="c5">&nbsp;Instantly see how your deals are performing.</span></li>
-        <li class="c8 li-bullet-0"><strong>Reports-on-demand:</strong><span class="c5">&nbsp;Generate sales reports on the fly, tailored to your needs.</span></li>
-        <li class="c8 li-bullet-0"><strong>Easy Access to Past Reports:</strong><span class="c5">&nbsp;Quickly review previous reports stored on Dropbox, directly from your dashboard.</span></li>
-    </ul>
-    
-    <h3><strong>How to Get Started:</strong></h3>
-    
-    <ol class="c4 lst-kix_list_2-0 start" start="1">
-        <li class="c2 li-bullet-0"><strong>Your login:</strong></li></ol>
-        <ul class="c4 lst-kix_list_3-1 start">
-            <li class="c11 li-bullet-0"><span class="c5">Username: {username} (or use this email address)</span></li>
-            <li class="c11 li-bullet-0"><span class="c9">Generate a new password here: </span><span class="c6"><a class="c3" href="{reset_url}">https://audioplugin.deals/reset-password/</a></span></li>
-        </ul>
-    <ol class="c4 lst-kix_list_2-0" start="2">
-        <li class="c15 li-bullet-0"><strong>Access your dashboard:</strong><span class="c9">&nbsp;Once you have logged in, click &quot;Developer Dashboard&quot; on My Account page, or use this link: </span><span class="c6"><a class="c3" href="https://audioplugin.deals/developer-dashboard/">https://audioplugin.deals/developer-dashboard/</a></span></li>
-    </ol>
-    
-    <p class="c1"><span class="c5">You&#39;re among the first to experience this exciting new feature! We&#39;d love your feedback. 
-        Let us know if you encounter any issues or have suggestions for improvement.</span></p><p class="c0"><span class="c5">We&#39;re confident this dashboard will make your Audio Plugin Deals experience even smoother and more informative. Happy selling!</span></p><p class="c0"><span class="c5">Best,</span></p><p class="c0"><span class="c5">The Audio Plugin Deals Team</span></p>
-    
-      <?php
-      
-      $message = ob_get_contents();
-      ob_end_clean();
-      
-      $email['headers'] = array( 'Content-Type: text/html; charset=UTF-8' ); 
-      
-      $key = get_password_reset_key( $user );
-      $reset_url = network_site_url( "wp-login.php?action=rp&key=$key&login=" . rawurlencode( $user->user_login ), 'login' );
-      $company_name = $user->first_name;
-      
-      $email['message'] = str_replace( 
-        [ '{company_name}', '{reset_url}', '{username}'], 
-        [ $company_name, $reset_url, $user->user_login ], // see attach_developer_taxonomy_to_new_user() for details 
-        $message 
-      );
-    }
-    
-    return $email;
   }
   
   /**
@@ -245,13 +180,13 @@ class Ddb_Plugin extends Ddb_Core {
           foreach ( $_POST['dev_info'] as $dev_id => $dev_info ) {
             self::update_developer_settings( $dev_id, $dev_info );
           }
-        break;
+					break;
        
         case self::ACTION_GENERATE_REPORT_TABLE:
           
           $report_settings = [ 'developer_id' => $dev_id, 'product_id' => $product_id, 'deal_product_id' => $deal_product_id , 'include_free_orders' => $free_orders ];
           $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $report_settings );
-        break;
+          break;
        
         case self::ACTION_GENERATE_REPORT_XLSX: // In general case this action is performed by Ddb_Plugi::generate_xlsx_sales_report_for_admin()
         
@@ -260,13 +195,42 @@ class Ddb_Plugin extends Ddb_Core {
           
           $result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id, product ID  $product_id )</h2>";
           
-        break;
+          break;
+				
+				case self::ACTION_START_CRON_REPORTS_GENERATION:
+					
+					$result = "<h2 style='color:purple;'>Started cron generation of all developer reports (using sales from $start_date to $end_date)</h2>";
+          $result .= '<p>Time to complete: approximately 1 hour</p>';
+					
+					$parameters = array(
+						'start_date' => $_POST['start_date'],
+						'end_date' => $_POST['end_date'],
+					);
+					
+					Ddb_Cron_Generation::start_processing( $parameters );
+					break;
+				
+				case self::ACTION_STOP_CRON_REPORTS_GENERATION:
+					
+					$result = "<h2 style='color:red;'>Stopped cron generation for developer reports</h2>";
+					
+					Ddb_Cron_Generation::stop_processing();
+					
+					break;
+				
+				case self::ACTION_RESTART_CRON_REPORTS_GENERATION:
+					
+					$result = "<h2 style='color:green;'>Re-started cron generation for stuck developer reports</h2>";
+					Ddb_Cron_Generation::restart_processing();
+					
+					break;
       }
     }
     
     return $result;
   }
   
+	
   /**
    * Get list of developers: [ id => [ name, slug and settings ] ]
    * 
@@ -274,23 +238,26 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public static function get_developer_list_and_settings() {
     $developers     = get_terms( array( 'taxonomy' => 'developer', 'hide_empty' => false ) );
+		
 		$arr_developers = array();
     
-    foreach ( $developers as $developer ) {
-      
-      $developer_data = array(
-        'slug' => $developer->slug,
-        'name' => $developer->name
-      );
-      
-      foreach ( self::$dev_profile_settings as $setting_name => $default_value ) {
-        $value =  get_term_meta( $developer->term_id, $setting_name, /* single? */ true );
-        $developer_data[ $setting_name ] = $value ?: $default_value; // Elvis operator! 
-      }
-      
-      $arr_developers[ $developer->term_id ] = $developer_data;
-      
-    }
+		if ( is_array($developers) ) {
+			foreach ( $developers as $developer ) {
+
+				$developer_data = array(
+					'slug' => $developer->slug,
+					'name' => $developer->name
+				);
+
+				foreach ( self::$dev_profile_settings as $setting_name => $default_value ) {
+					$value =  get_term_meta( $developer->term_id, $setting_name, /* single? */ true );
+					$developer_data[ $setting_name ] = $value ?: $default_value; // Elvis operator! 
+				}
+
+				$arr_developers[ $developer->term_id ] = $developer_data;
+
+			}
+		}
 
 		return $arr_developers;
   }
@@ -426,6 +393,33 @@ class Ddb_Plugin extends Ddb_Core {
       }
     }
   }
+	
+	
+  /**
+   * Generates XLSX file when requested by cron scheduled action
+   */
+  public static function generate_xlsx_sales_report_for_cron( $dev_id, $start_date, $end_date ) {
+
+    $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
+    $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
+    $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+    $product_id       = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
+    $deal_product_id  = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
+    $dev_id           = filter_input( INPUT_POST, 'developer_id' );
+
+    if ( $dev_id || $product_id || $deal_product_id ) {
+      
+      $developer_term = $dev_id ? self::find_developer_term_by_id( $dev_id ) : null;
+      
+      $report_settings = [ 'product_id' => 0, 'deal_product_id' => 0, 'include_free_orders' => $free_orders ];
+      
+      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $report_settings );
+
+      if ( $report_generated ) {
+        exit();
+      }
+    }
+  }
   
   /**
    * 
@@ -536,6 +530,7 @@ class Ddb_Plugin extends Ddb_Core {
    
     $this->render_report_generator_form();
     $this->render_payout_report_form();
+		$this->render_generation_schedule_form();
     $this->render_settings_form();
     
   }
@@ -633,6 +628,58 @@ class Ddb_Plugin extends Ddb_Core {
       <p class="submit">
        <input type="submit" id="ddb-button-generate-xlsx" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_XLSX; ?>" />
        <input type="submit" id="ddb-button-generate-table" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_TABLE; ?>" />
+      </p>
+      
+    </form>
+    <?php 
+
+  }
+	
+	 
+  /**
+   * Shows the form used to generate developer reports for the admin
+   */
+  public function render_generation_schedule_form() {
+    
+    $start_date         = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_START ) ?? date( 'Y-m-d', strtotime("-30 days") ) );
+    $end_date           = sanitize_text_field( filter_input( INPUT_POST, self::FIELD_DATE_END ) ?? self::get_today_date() );
+    
+    $mass_generation_field_set = array(
+      array(
+				'name'        => "start_date",
+				'type'        => 'date',
+				'label'       => 'Start date',
+        'min'         => '2020-01-01',
+        'value'       => $start_date,
+        'description' => '' 
+			),
+      array(
+				'name'        => "end_date",
+				'type'        => 'date',
+				'label'       => 'End date',
+        'min'         => '2020-01-01',
+        'value'       => $end_date,
+        'description' => ''
+			)
+		);
+    
+    ?> 
+
+    <form method="POST" >
+    
+      <h2><?php esc_html_e('Mass Report Generation', 'ddb'); ?></h2>
+      
+      
+      <table class="ddb-global-table">
+        <tbody>
+          <?php self::display_field_set( $mass_generation_field_set ); ?>
+        </tbody>
+      </table>
+    
+      
+      <p class="submit">
+       <input type="submit" id="ddb-button-generate-xlsx" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
+       <input type="submit" id="ddb-button-generate-table" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
       </p>
       
     </form>

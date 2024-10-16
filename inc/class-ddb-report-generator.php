@@ -2,6 +2,9 @@
 
 class Ddb_Report_Generator extends Ddb_Core {
   
+	
+	static $full_report_summary = array();
+	
   /**
    * Returns list of lines suitable for the final report
    * ( each line describes purchase of a single WC product ) 
@@ -670,7 +673,12 @@ class Ddb_Report_Generator extends Ddb_Core {
 
         $total -= $total_refunded;
       
-
+				self::$full_report_summary = array(
+					'total_dev_profits'     => $total,
+					'total_refunded'        => $total_refunded,
+					'orders_refunded'       => $orders_refunded
+				);
+				
         $report_summary = array(
           [ 0 => '~~~~~~~~~~~~~~~~' ],
           self::prepare_refund_summary( $total_refunded, $orders_refunded ),
@@ -691,7 +699,11 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     return $report_is_ok;
   }
-  
+	
+	public static function get_last_report_summary() {
+		return self::$full_report_summary;
+	}
+	
   /**
    * Generates array with payout data for the specified developer
    * 

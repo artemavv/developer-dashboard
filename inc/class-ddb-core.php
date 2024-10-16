@@ -30,6 +30,11 @@ class Ddb_Core {
   public const ACTION_GENERATE_PAYOUT = 'Generate payout report';
   public const ACTION_GENERATE_REPORT_XLSX = 'Generate sales report (XLSX file)';
   public const ACTION_GENERATE_REPORT_TABLE = 'Generate sales report (show table)';
+	
+	// Actions triggered by buttons in backend area, in regards to scheduled generation
+	public const ACTION_START_CRON_REPORTS_GENERATION = 'Start generating reports';
+	public const ACTION_RESTART_CRON_REPORTS_GENERATION = 'Re-generate stuck reports';
+	public const ACTION_STOP_CRON_REPORTS_GENERATION = 'Stop generating reports';
   
   /**
    * Special value on developer profile indicating to use global profit ratio.
@@ -245,7 +250,7 @@ class Ddb_Core {
     
     $developer_data = false;
     
-    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
+    if ( is_object( $developer_term ) ) {
       
       $developer_data = array();
       
@@ -868,7 +873,24 @@ EOT;
 			file_put_contents($filename, date("Y-m-d H:i:s") . " | " . print_r($data,1) . "\r\n\r\n", FILE_APPEND);
 		}
 	}
-  
+	
+  /**
+	 * Write into WooCommerce log. 
+	 * 
+	 * @param string $message
+	 * @param array $data
+	 */
+	public static function wc_log(string $message, array $data) {
+
+		$data['source'] = 'developer-dashboard';
+
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->info(
+							$message,
+							$data
+			);
+		}
+	}
   
   // code taken from https://www.php.net/manual/en/function.fputcsv.php
   public static function make_csv_line( array $fields) : string {
