@@ -47,7 +47,7 @@ class Ddb_Plugin extends Ddb_Core {
     add_filter( 'the_title', array( 'Ddb_Plugin', 'custom_title_for_developer_dashboard' ), 10, 2 );
 		
 		// set up cron handling and events scheduling
-		$this->cron_generation = new Ddb_Cron_Generation();
+		$this->cron_generation = new Ddb_Cron_Generator();
 	}
 
 	public function initialize() {
@@ -188,40 +188,44 @@ class Ddb_Plugin extends Ddb_Core {
           $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $report_settings );
           break;
        
-        case self::ACTION_GENERATE_REPORT_XLSX: // In general case this action is performed by Ddb_Plugi::generate_xlsx_sales_report_for_admin()
+        case self::ACTION_GENERATE_REPORT_XLSX:
         
-          // generate_xlsx_sales_report_for_admin() stops script execution when it found some reports.
-          // If we are here, then that function found nothing. 
-          
-          $result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id, product ID  $product_id )</h2>";
-          
+          $result = Ddb_Plugin::generate_xlsx_sales_report_for_admin();
           break;
 				
 				case self::ACTION_START_CRON_REPORTS_GENERATION:
 					
-					$result = "<h2 style='color:purple;'>Started cron generation of all developer reports (using sales from $start_date to $end_date)</h2>";
-          $result .= '<p>Time to complete: approximately 1 hour</p>';
+					$errors_found = Ddb_Frontend::validate_input( $start_date, $end_date );
 					
-					$parameters = array(
-						'start_date' => $_POST['start_date'],
-						'end_date' => $_POST['end_date'],
-					);
+					if ( ! $errors_found ) {
+						
+						$result = "<h2 style='color:purple;'>Started cron generation of all developer reports (using sales from $start_date to $end_date)</h2>";
+
+						$parameters = array(
+							'start_date' => $start_date,
+							'end_date' => $end_date
+						);
+						Ddb_Cron_Generator::start_processing( $parameters );
+					}
+					else {
+						$result = $errors_found;
+					}
 					
-					Ddb_Cron_Generation::start_processing( $parameters );
+					
 					break;
 				
 				case self::ACTION_STOP_CRON_REPORTS_GENERATION:
 					
 					$result = "<h2 style='color:red;'>Stopped cron generation for developer reports</h2>";
 					
-					Ddb_Cron_Generation::stop_processing();
+					Ddb_Cron_Generator::stop_processing();
 					
 					break;
 				
 				case self::ACTION_RESTART_CRON_REPORTS_GENERATION:
 					
 					$result = "<h2 style='color:green;'>Re-started cron generation for stuck developer reports</h2>";
-					Ddb_Cron_Generation::restart_processing();
+					Ddb_Cron_Generator::restart_processing();
 					
 					break;
       }
@@ -373,25 +377,58 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public static function generate_xlsx_sales_report_for_admin() {
 
+		
+		
     $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
     $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
     $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
     $product_id       = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
     $deal_product_id  = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
     $dev_id           = filter_input( INPUT_POST, 'developer_id' );
-
+		$save_to_file     = filter_input( INPUT_POST, 'save_to_file' );
+		
     if ( $dev_id || $product_id || $deal_product_id ) {
       
       $developer_term = $dev_id ? self::find_developer_term_by_id( $dev_id ) : null;
       
-      $report_settings = [ 'product_id' => $product_id, 'deal_product_id' => $deal_product_id, 'include_free_orders' => $free_orders ];
+      $report_settings = [
+				'start_date'          => $start_date,
+				'end_date'            => $end_date,
+				'product_id'          => $product_id, 
+				'deal_product_id'     => $deal_product_id, 
+				'include_free_orders' => $free_orders,
+				'save_to_file'        => $save_to_file 
+			];
       
+			$report_name          = is_object( $developer_term ) ? $developer_term->name : 'products';
+			$filename             = $report_name . '_report_from_' . $start_date . '_to_' . $end_date . '.xlsx';
+			
+			if ( $save_to_file ) { 
+				$directory_path       = self::create_folder_for_reports( $report_settings );
+				$report_download_url  = self::create_url_for_reports( $report_settings ) . '/' . $filename;
+				$report_settings['save_path'] = $directory_path . '/' . $filename;
+				$report_settings['save_url'] = $report_download_url;
+			}
+			
       $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $report_settings );
 
+			$result = "<h2 style='color:red;'>Found no orders for the report ( from $start_date to $end_date, developer ID $dev_id, product ID  $product_id )</h2>";
+			
       if ( $report_generated ) {
-        exit();
+				if ( $save_to_file ) {
+					$result = "<h2 style='color:teal;'>Found $report_generated orders for the report ( from $start_date to $end_date, developer ID $dev_id, product ID  $product_id )</h2>";
+					$result .= "<h2 style='color:teal;'><a href='$report_download_url'>Download_report</a></h2>";
+				}
+				else { // Ddb_Report_Generator::generate_xlsx_report has already sent file contents to the browser. Must not add extra output.
+					exit();
+				}
       }
     }
+		else {		
+			$result = "<h2 style='color:red;'>Incorrect parameters for the report ( developer ID $dev_id, product ID $product_id )</h2>";
+		}
+		
+		return $result;
   }
 	
 	
@@ -400,6 +437,7 @@ class Ddb_Plugin extends Ddb_Core {
    */
   public static function generate_xlsx_sales_report_for_cron( $dev_id, $start_date, $end_date ) {
 
+		/* TODO
     $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
     $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
     $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
@@ -419,6 +457,8 @@ class Ddb_Plugin extends Ddb_Core {
         exit();
       }
     }
+		 * 
+		 */
   }
   
   /**
@@ -609,10 +649,25 @@ class Ddb_Plugin extends Ddb_Core {
         'value'       => 0,
         'description' => ''
 			),
+			array(
+				'name'        => "save_to_file",
+				'type'        => 'checkbox',
+				'label'       => 'Save report to file',
+        'value'       => 0,
+        'description' => ''
+			)
 		);
     
+		$last_report_url = get_option( 'ddb_last_generated_report', false );
+		
     ?> 
 
+		<?php if ( $last_report_url) : ?>
+			<hr>
+			<a target="_blank" href="<?php echo $last_report_url; ?>">Download last generated report</a>
+			<hr>
+		<?php endif; ?>
+				
     <form method="POST" >
     
       <h2><?php esc_html_e('Generate Developer Report', 'ddb'); ?></h2>
@@ -629,7 +684,7 @@ class Ddb_Plugin extends Ddb_Core {
        <input type="submit" id="ddb-button-generate-xlsx" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_XLSX; ?>" />
        <input type="submit" id="ddb-button-generate-table" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_REPORT_TABLE; ?>" />
       </p>
-      
+    
     </form>
     <?php 
 
@@ -646,7 +701,7 @@ class Ddb_Plugin extends Ddb_Core {
     
     $mass_generation_field_set = array(
       array(
-				'name'        => "start_date",
+				'name'        => self::FIELD_DATE_START,
 				'type'        => 'date',
 				'label'       => 'Start date',
         'min'         => '2020-01-01',
@@ -654,7 +709,7 @@ class Ddb_Plugin extends Ddb_Core {
         'description' => '' 
 			),
       array(
-				'name'        => "end_date",
+				'name'        => self::FIELD_DATE_END,
 				'type'        => 'date',
 				'label'       => 'End date',
         'min'         => '2020-01-01',
@@ -663,6 +718,9 @@ class Ddb_Plugin extends Ddb_Core {
 			)
 		);
     
+		
+		$cron_is_running = wp_next_scheduled( Ddb_Cron_Generator::HOOK_NAME );
+		
     ?> 
 
     <form method="POST" >
@@ -678,13 +736,22 @@ class Ddb_Plugin extends Ddb_Core {
     
       
       <p class="submit">
-       <input type="submit" id="ddb-button-generate-xlsx" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
-       <input type="submit" id="ddb-button-generate-table" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
+       <input type="submit" id="ddb-button-start-cron" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
+			 
+			 <?php if ( $cron_is_running ): ?>
+				<br><br>
+				<input type="submit" id="ddb-button-re-generate-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
+				<br><br>
+				<input type="submit" id="ddb-button-stop-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_STOP_CRON_REPORTS_GENERATION; ?>" />
+				<?php else: ?>
+				
+				<?php endif; ?>
       </p>
       
     </form>
-    <?php 
 
+    <?php 
+			echo Ddb_Cron_Generator::render_status();
   }
 
   

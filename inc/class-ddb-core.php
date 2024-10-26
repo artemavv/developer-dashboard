@@ -863,6 +863,46 @@ EOT;
 		return $out;
 	}	
 	
+	public static function create_url_for_reports( $params, $timestamp = false ) {
+    
+    if ( ! $timestamp ) {
+			$timestamp = time();
+		}
+		
+    $folder_name = $timestamp . '-from-' . $params['start_date'] . '-to-' . $params['end_date'];
+    
+    $upload = wp_upload_dir();
+    
+    $folder_url = trailingslashit( $upload['url'] ) . 'ddb-reports/' . $folder_name;
+		
+		return $folder_url;
+	}
+	
+	public static function create_folder_for_reports( $params, $timestamp = false ) {
+    
+    if ( ! $timestamp ) {
+			$timestamp = time();
+		}
+		
+		$folder_name = $timestamp . '-from-' . $params['start_date'] . '-to-' . $params['end_date'];
+		
+    $upload = wp_upload_dir();
+    $full_path = trailingslashit( $upload['path'] ) . 'ddb-reports/' . $folder_name;
+    
+    wp_mkdir_p( $full_path );
+
+		// remove all files in that folder, if any
+		$files = glob($full_path . '/*'); // get all file names
+		
+		foreach( $files as $file ) { 
+			if ( is_file($file) ) {
+				unlink($file); 
+			}
+		}
+
+		return $full_path;
+	}
+	
 	public static function log($data) {
 
 		$filename = pathinfo( __FILE__, PATHINFO_DIRNAME ) . DIRECTORY_SEPARATOR .'log.txt';
@@ -880,7 +920,7 @@ EOT;
 	 * @param string $message
 	 * @param array $data
 	 */
-	public static function wc_log(string $message, array $data) {
+	public static function wc_log(string $message, array $data = array() ) {
 
 		$data['source'] = 'developer-dashboard';
 

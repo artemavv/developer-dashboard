@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.2.2
+Version: 0.2.5
 */
 
 /*
@@ -28,7 +28,7 @@ Version: 0.2.2
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.2.2' );
+define( 'DDB_VERSION', '0.2.5' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;
@@ -52,9 +52,22 @@ if ( filter_input( INPUT_GET, Ddb_Core::BUTTON_SUMBIT ) == Ddb_Core::ACTION_GENE
 if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) == Ddb_Core::ACTION_GENERATE_REPORT_XLSX ) {
   
   // Admin requested to generate XLS report file
-  // to send him the file, we need to prepare the file contents and send headers before doing anything else
-  require_once( 'vendor/xlsxwriter.class.php' );
-  add_action('init', array( 'Ddb_Plugin', 'generate_xlsx_sales_report_for_admin' ) );
+
+	$save_to_file = filter_input( INPUT_POST, 'save_to_file' );
+	
+	if ( ! $save_to_file ) { // "save to file" checkbox is not checked, therefore we need to send the file to the browser instead of saving onto the disk
+	
+		// report will be sent directly to the browser (allowing to download it immediately)
+		// to send the file contents to th browser,
+		// we need to prepare the file contents and send headers before doing anything else
+		
+		require_once( 'vendor/xlsxwriter.class.php' );
+		add_action('init', array( 'Ddb_Plugin', 'generate_xlsx_sales_report_for_admin' ) );
+		
+	} else { 
+		// need to generate report and save it to disk.
+		// in this case, report generation will be handled as usual, by Ddb_Plugin::do_action()
+	}
 }
 
 if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTION_DOWNLOAD_ORDERS_REPORT ) {

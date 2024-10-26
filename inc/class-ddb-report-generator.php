@@ -23,8 +23,8 @@ class Ddb_Report_Generator extends Ddb_Core {
       $order_items_data = self::filter_target_items_in_order( $order, $developer_term, $product_id, $deal_products_only );
       $order_lines = array();
 
-      self::log( " $order_id ORDER ITEMS " );
-      self::log( $order_items_data );
+      //self::wc_log( "get_single_order_info $order_id ORDER ITEMS " );
+      //self::wc_log( "get_single_order_info", $order_items_data );
       
       foreach ( $order_items_data as $product_arr ) {
 
@@ -108,8 +108,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       }
     }
 
-    self::log( " $order_id ORDER LINES " );
-    self::log( $order_lines );
+    //self::wc_log( "get_single_order_info - $order_id ORDER LINES ", $order_lines );
     return $order_lines;
   }
 
@@ -183,6 +182,9 @@ class Ddb_Report_Generator extends Ddb_Core {
       AND wco.status = 'wc-completed'
       ORDER BY wco.date_created_gmt DESC";
     
+		
+		//self::wc_log( $query_sql );
+		
     $ids = array();
     
     $sql_results = $wpdb->get_results( $query_sql, ARRAY_A );
@@ -529,18 +531,16 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     $report_lines = array();
     
-    //foreach ( $report_data['devs'] as $dev_id => $dev_data ) {
     foreach ( $developer_settings as $dev_id => $developer ) {
         
       $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
       
       if ( $dev_data_from_report && is_array($developer) && count($developer) ) {
         
-        $dev_name = $dev_data_from_report['name'];
-        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+        $dev_name = $dev_data_from_report->name;
+        $earnings = $dev_data_from_report->summary['total_dev_profits'] ?: 0;
 
         $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in DB as percents. "2" is 2%, 0.02 
-        $paypal_address = $developer['paypal_address'] ?? '';
 
         $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
 
@@ -611,7 +611,7 @@ class Ddb_Report_Generator extends Ddb_Core {
   
     self::load_options();
     
-    $report_is_ok = false;
+    $processed_orders = false;
     
     $orders_data = array();
     
@@ -644,9 +644,11 @@ class Ddb_Report_Generator extends Ddb_Core {
 
         $orders_data = self::remove_duplicated_order_lines( $orders_data );
 
+				self::wc_log( "generate_xlsx_report - removed duplicates. Preparing report data....");
+				
         // Prepare the body of report 
 
-        $report_is_ok = true;
+        $processed_orders = 0;
 
         $columns = self::$report_columns['orders'];
         $report_lines = [];
@@ -669,35 +671,67 @@ class Ddb_Report_Generator extends Ddb_Core {
           }
 
           $report_lines[] = $report_line;
+					
+					$processed_orders++;
         }
 
         $total -= $total_refunded;
       
+				// Prepare report summary and payout using individual developer payout settings
+				$refund_summary = self::prepare_refund_summary( $total_refunded, $orders_refunded );
+				$payout_summary = self::prepare_payout_summary( $total, $developer_term ); 
+			
+				// will be used later in generate_totals_report()
 				self::$full_report_summary = array(
 					'total_dev_profits'     => $total,
 					'total_refunded'        => $total_refunded,
-					'orders_refunded'       => $orders_refunded
+					'orders_refunded'       => $orders_refunded,
+					'payout'                => $payout_summary[3]
 				);
+				
+				
+				self::wc_log( "generate_xlsx_report", self::$full_report_summary );
+				
+				
 				
         $report_summary = array(
           [ 0 => '~~~~~~~~~~~~~~~~' ],
-          self::prepare_refund_summary( $total_refunded, $orders_refunded ),
-          self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
+          $refund_summary,
+          $payout_summary
         );
 
         $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $report_summary );
 
-        $filename = 'report_from_' . $start_date . '_to_' . $end_date;
-
-        self::echo_headers( $filename, self::FILE_FORMAT_XLSX );
-
-        $writer = new XLSXWriter();
-        $writer->writeSheet( $report_data );
-        $writer->writeToStdOut();
+				
+				self::wc_log( "generate_xlsx_report", $report_data );
+				
+				self::wc_log( "generate_xlsx_report", $report_settings );
+				
+				
+				if ( $report_settings['save_to_file'] ?? false ) {
+					
+					require_once( __DIR__ . '/../vendor/xlsxwriter.class.php' );
+					
+					$writer = new XLSXWriter();
+					$writer->writeSheet( $report_data );
+					$writer->writeToFile( $report_settings['save_path'] );
+					
+					update_option( 'ddb_last_generated_report', $report_settings['save_url'] );
+					
+				} else {
+					
+					require_once( __DIR__ . '/../vendor/xlsxwriter.class.php' );
+					
+					$filename = 'report_from_' . $start_date . '_to_' . $end_date;
+					self::echo_headers( $filename, self::FILE_FORMAT_XLSX );
+					$writer = new XLSXWriter();
+					$writer->writeSheet( $report_data );
+					$writer->writeToStdOut();
+				}
       }
     }
     
-    return $report_is_ok;
+    return $processed_orders;
   }
 	
 	public static function get_last_report_summary() {
@@ -713,7 +747,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param object $developer_term
    * @return array
    */
-  public static function prepare_report_summary( float $total, ?object $developer_term ) {
+  public static function prepare_payout_summary( float $total, ?object $developer_term ) {
     
     $report_summary = [ 
       0 => 'Total:', 
@@ -737,7 +771,47 @@ class Ddb_Report_Generator extends Ddb_Core {
 
     return $report_summary;
   }
-    /**
+	 
+	/**
+	 * Generates XLS file with developer summaries
+	 * 
+	 * NOT USED
+	 * 
+	 * @param string $start_date
+	 * @param string $end_date
+	 * @param array $developers
+	 * @param array $report_settings
+	 */
+	public static function generate_totals_report( $start_date, $end_date, $developers, $report_settings ) {
+		
+		$columns = array(
+			'Developer Name',
+			'Total profit',
+			'Payout'
+		);
+		
+		$report_lines = array();
+						
+		foreach ( $developers as $developer ) {
+			$report_lines[] = array(
+				$developer->name,
+				$developer->summary['total_dev_profits'],
+				$developer->summary['payout'],
+			);
+		}
+		
+		$report_data = array_merge( array( 0 => array_values($columns) ), $report_lines);
+		
+		$filename = 'totals_report_from_' . $start_date . '_to_' . $end_date;
+
+		require_once( __DIR__ . '/../vendor/xlsxwriter.class.php' );
+		$writer = new XLSXWriter();
+		$writer->writeSheet( $report_data );
+		$writer->writeToFile( $report_settings['folder_path'] . '/' . $filename );
+	}
+	
+	
+  /**
    * Generates array with refund data for the report
    * 
    * If developer is not provided, then calculate just the totals 
@@ -836,7 +910,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       $report_summary = array(
         [ 0 => '~~~~~~~~~~~~~~~~' ],
         self::prepare_refund_summary( $total_refunded, $orders_refunded ),
-        self::prepare_report_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
+        self::prepare_payout_summary( $total, $developer_term ) // Prepare report summary and payout using individual developer payout settings
       );
 
       $report_data = array_merge( $report_lines, $report_summary );
