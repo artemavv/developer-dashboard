@@ -185,18 +185,22 @@ class Ddb_Cron_Generator extends Ddb_Core {
 		$start_date = $this->cron_params['start_date'];
 		$end_date = $this->cron_params['end_date'];
 		
+		
+		$filename = $developer_term->name . '_report_from_' . $start_date . '_to_' . $end_date . '.xlsx';
+		
  		self::wc_log( "prepare_report_for_single_developer -- start. ($start_date , $end_date)", (array) $developer_term );
 		
 		$settings = array( 
 			'save_to_file'  => true,
-			'folder_path'    => $this->cron_params['folder_path']
+			'folder_path'   => $this->cron_params['folder_path'],
+			'save_path'			=> $this->cron_params['folder_path'] . '/' . $filename 
 		);
 		
-		$filename = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $settings );
+		$processed_orders = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $settings );
 
-		if ( $filename ) {
+		if ( $processed_orders ) {
 			$this->report_summary = Ddb_Report_Generator::get_last_report_summary();
-			self::wc_log( 'prepare_report_for_single_developer -- end. Result: ' . $filename, $this->report_summary );
+			self::wc_log( 'prepare_report_for_single_developer -- end. Result: ' . $processed_orders, $this->report_summary );
 			return $filename;
 		}
 		else {
@@ -206,6 +210,9 @@ class Ddb_Cron_Generator extends Ddb_Core {
 
 	}
 	
+	public static function get_saved_report_data( $timestamp ) {
+		return get_option( self::OPTION_NAME__RESULTS . '_' . $timestamp, false );
+	}
 	
 	/**
 	 * Prepares the list of developers with their IDs, names, and 'scheduled' status
@@ -271,7 +278,20 @@ class Ddb_Cron_Generator extends Ddb_Core {
 	}
 
 	public static function restart_processing() {
-		
+		self::wc_log( 'Restarted cron', array() );
+
+		if ( ! wp_next_scheduled( self::HOOK_NAME ) ) {
+
+			// custom scheduling interval 'two minutes' is added 
+			$result_sch = wp_schedule_event( time(), 'two_minutes', self::HOOK_NAME );
+			self::wc_log( 'restart_processing wp_schedule_event Ddb_Cron_Generation ', array( 'result' => $result_sch ) );
+			
+		}
+
+		$parameters['restarted_at'] = time();
+
+		update_option( self::OPTION_NAME__PARAMETERS, $parameters );
+
 	}
 
 	public static function stop_processing() {
@@ -297,6 +317,11 @@ class Ddb_Cron_Generator extends Ddb_Core {
 		$cron_is_running = wp_next_scheduled( self::HOOK_NAME );
 		
 		$cron_results    = get_option( self::OPTION_NAME__RESULTS );
+		
+		
+		if ( ! is_array( $cron_results['devs'] ?? false )) { // no correct data
+			return false;
+		}
 		
 		$dev_list = '';
 		$count_scheduled = 0;
@@ -351,7 +376,7 @@ class Ddb_Cron_Generator extends Ddb_Core {
 			$status = 'inactive';
 		}
 		
-		$out .= '<p>' . $status . '</p>';
+		$out .= '<p><strong>' . $status . '</strong></p>';
 		
 		$out .= '<p>Scheduled reports: <strong>' . $count_scheduled . '</strong></p>';
 		$out .= '<p>Currently processing: <strong>' . $count_processing . '</strong></p>';

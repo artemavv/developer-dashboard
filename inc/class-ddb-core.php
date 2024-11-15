@@ -448,7 +448,7 @@ class Ddb_Core {
     global $wpdb;
     $wp = $wpdb->prefix;
     
-    $summary_key_prefix = 'aff_cron_results_';
+    $summary_key_prefix = 'ddb_cron_results_';
     
     $query_sql = "SELECT o.`option_name` as name, o.`option_value` AS value from {$wp}options AS o
         WHERE o.`option_name` LIKE '%{$summary_key_prefix}%' ORDER BY o.`option_name` DESC ";

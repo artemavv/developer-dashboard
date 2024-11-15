@@ -430,36 +430,6 @@ class Ddb_Plugin extends Ddb_Core {
 		
 		return $result;
   }
-	
-	
-  /**
-   * Generates XLSX file when requested by cron scheduled action
-   */
-  public static function generate_xlsx_sales_report_for_cron( $dev_id, $start_date, $end_date ) {
-
-		/* TODO
-    $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
-    $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
-    $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
-    $product_id       = sanitize_text_field( filter_input( INPUT_POST, 'product_id') ?? 0 );
-    $deal_product_id  = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
-    $dev_id           = filter_input( INPUT_POST, 'developer_id' );
-
-    if ( $dev_id || $product_id || $deal_product_id ) {
-      
-      $developer_term = $dev_id ? self::find_developer_term_by_id( $dev_id ) : null;
-      
-      $report_settings = [ 'product_id' => 0, 'deal_product_id' => 0, 'include_free_orders' => $free_orders ];
-      
-      $report_generated = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $report_settings );
-
-      if ( $report_generated ) {
-        exit();
-      }
-    }
-		 * 
-		 */
-  }
   
   /**
    * 
@@ -481,8 +451,10 @@ class Ddb_Plugin extends Ddb_Core {
       self::load_options();
       
       $global_profit_ratio = self::$option_values['global_default_profit_ratio'];
+			
+			self::wc_log( '$global_profit_ratio: ' . $global_profit_ratio );
         
-      $report_data = get_option( 'aff_cron_results_' . $payroll_timestamp );
+      $report_data = Ddb_Cron_Generator::get_saved_report_data( $payroll_timestamp );
       
       $developer_settings = self::get_developer_settings_by_payout_category( $payout_category );
 
@@ -550,6 +522,8 @@ class Ddb_Plugin extends Ddb_Core {
 
     }
     
+		//self::wc_log( " get_developer_settings_by_payout_category - $payout_category", $developers);
+		
     return $developers;
   }
   
@@ -736,15 +710,17 @@ class Ddb_Plugin extends Ddb_Core {
     
       
       <p class="submit">
-       <input type="submit" id="ddb-button-start-cron" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
-			 
-			 <?php if ( $cron_is_running ): ?>
-				<br><br>
-				<input type="submit" id="ddb-button-re-generate-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
-				<br><br>
-				<input type="submit" id="ddb-button-stop-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_STOP_CRON_REPORTS_GENERATION; ?>" />
-				<?php else: ?>
-				
+				<?php if ( ! $cron_is_running ): ?>
+					<input type="submit" id="ddb-button-start-cron" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
+					<input type="submit" id="ddb-button-re-generate-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
+					<br><br>
+				<?php endif; ?>
+					
+				<?php if ( $cron_is_running ): ?>
+					<br><br>
+					<input type="submit" id="ddb-button-re-generate-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
+					<br><br>
+					<input type="submit" id="ddb-button-stop-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_STOP_CRON_REPORTS_GENERATION; ?>" />
 				<?php endif; ?>
       </p>
       
@@ -887,6 +863,7 @@ class Ddb_Plugin extends Ddb_Core {
     
       <h2><?php esc_html_e('Generate Payout Reports', 'ddb'); ?></h2>
       
+			<input type="hidden" name="page" value="ddb-settings" />
       
       <table class="ddb-global-table">
         <tbody>
@@ -896,7 +873,7 @@ class Ddb_Plugin extends Ddb_Core {
     
       
       <p class="submit">  
-       <input type="submit" id="ddb-button-save" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_GENERATE_PAYOUT; ?>" />
+       <input type="submit" id="ddb-button-save" name="<?php echo self::BUTTON_SUMBIT; ?>" class="button button-primary" value="<?php echo self::ACTION_GENERATE_PAYOUT; ?>" />
       </p>
       
     </form>

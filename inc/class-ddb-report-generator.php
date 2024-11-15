@@ -439,19 +439,19 @@ class Ddb_Report_Generator extends Ddb_Core {
       $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
       
       if ( $dev_data_from_report ) {
-        $dev_name = $dev_data_from_report['name'];
-        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+        $dev_name = $dev_data_from_report->name;
+        $earnings = $dev_data_from_report->summary['total_dev_profits'] ?: 0;
 
         $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
         $payment_method = self::$payment_methods_names[ $developer_settings[$dev_id]['payment_method'] ] ?: '';
 
         $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
 
-        $payout = round( $developer_share * $earnings, 2);
+        $payout = round( $developer_share * $earnings, 2 );
 
         $developer_share *= 100; // to show percents instead of fraction
         
-        $report_lines[] =  [$dev_name, $payout, $payment_method];
+        $report_lines[] = [ $dev_name, $payout, $payment_method ];
         
       }
     }
@@ -488,15 +488,15 @@ class Ddb_Report_Generator extends Ddb_Core {
       $dev_data_from_report = $report_data['devs'][ $dev_id ] ?: false;
       
       if ( $dev_data_from_report ) {
-        $dev_name = $dev_data_from_report['name'];
-        $earnings = $dev_data_from_report['summary']['gross_earnings_with_discount'] ?: 0;
+        $dev_name = $dev_data_from_report->name;
+        $earnings = $dev_data_from_report->summary['total_dev_profits'] ?: 0;
 
         $dev_profit_ratio = 0.01 * $developer['profit_ratio']; // ratio is saved in percents. "2" is 2%, 0.02 
         $paypal_address = $developer['paypal_address'] ?? '';
 
         $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
 
-        $payout = round( $developer_share * $earnings, 2);
+        $payout = round( $developer_share * $earnings, 2 );
 
         $report_line = [ $dev_name, $payout, $paypal_address, 'USD' ];
         
@@ -529,6 +529,8 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     self::echo_headers( $filename );
     
+		self::wc_log( 'generate_summary_report - REPORT', $report_data );
+		
     $report_lines = array();
     
     foreach ( $developer_settings as $dev_id => $developer ) {
@@ -545,6 +547,8 @@ class Ddb_Report_Generator extends Ddb_Core {
         $developer_share = ( $developer['profit_ratio'] == self::USE_GLOBAL_PROFIT_RATIO ) ? $global_profit_ratio : $dev_profit_ratio ;
 
         $payout = round( $developer_share * $earnings, 2);
+				
+				self::wc_log( 'generate_summary_report = ' . $dev_name, array( $dev_data_from_report->summary, $earnings, $dev_profit_ratio, $developer_share, $payout ) );
 
         $report_line = [ $dev_name, $payout ];
         
@@ -703,9 +707,9 @@ class Ddb_Report_Generator extends Ddb_Core {
         $report_data = array_merge( array( 0 => array_values($columns) ), $report_lines, $report_summary );
 
 				
-				self::wc_log( "generate_xlsx_report", $report_data );
+				//self::wc_log( "generate_xlsx_report", $report_data );
 				
-				self::wc_log( "generate_xlsx_report", $report_settings );
+				//self::wc_log( "generate_xlsx_report", $report_settings );
 				
 				
 				if ( $report_settings['save_to_file'] ?? false ) {
