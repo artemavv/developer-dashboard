@@ -161,13 +161,14 @@ class Ddb_Plugin extends Ddb_Core {
     
     if ( isset( $_POST['ddb-button'] ) ) {
       
-      $start_date       = filter_input( INPUT_POST, self::FIELD_DATE_START );
-      $end_date         = filter_input( INPUT_POST, self::FIELD_DATE_END );
-      $free_orders      = (bool) filter_input( INPUT_POST, 'include_free_orders' );
-      $product_id       = (int) filter_input( INPUT_POST, 'product_id' );
-      $deal_product_id  = (int) filter_input( INPUT_POST, 'deal_product_id' );
-      $dev_id           = filter_input( INPUT_POST, 'developer_id' );
-   
+      $start_date              = filter_input( INPUT_POST, self::FIELD_DATE_START );
+      $end_date                = filter_input( INPUT_POST, self::FIELD_DATE_END );
+      $free_orders             = (bool) filter_input( INPUT_POST, 'include_free_orders' );
+      $product_id              = (int) filter_input( INPUT_POST, 'product_id' );
+      $deal_product_id         = (int) filter_input( INPUT_POST, 'deal_product_id' );
+      $dev_id                  = filter_input( INPUT_POST, 'developer_id' );
+      $include_billing_address = (bool) filter_input( INPUT_POST, 'include_billing_address' );
+      
       switch ( $_POST['ddb-button'] ) {
         case self::ACTION_SAVE_OPTIONS:
          
@@ -185,7 +186,14 @@ class Ddb_Plugin extends Ddb_Core {
         case self::ACTION_GENERATE_REPORT_TABLE:
           
           $skip_deal_shop_check = (bool) filter_input( INPUT_POST, 'skip_deal_shop_check' );
-          $report_settings = [ 'developer_id' => $dev_id, 'product_id' => $product_id, 'deal_product_id' => $deal_product_id , 'include_free_orders' => $free_orders, 'skip_deal_shop_check' => $skip_deal_shop_check ];
+          $report_settings = [
+            'developer_id'           => $dev_id,
+            'product_id'             => $product_id,
+            'deal_product_id'        => $deal_product_id,
+            'include_free_orders'    => $free_orders,
+            'skip_deal_shop_check'   => $skip_deal_shop_check,
+            'include_billing_address'=> $include_billing_address,
+          ];
           $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $report_settings );
           break;
        
@@ -391,6 +399,7 @@ class Ddb_Plugin extends Ddb_Core {
     $dev_id           = filter_input( INPUT_POST, 'developer_id' );
 		$save_to_file     = filter_input( INPUT_POST, 'save_to_file' );
 		$skip_deal_shop_check = (bool) filter_input( INPUT_POST, 'skip_deal_shop_check' );
+    $include_billing_address = (bool) filter_input( INPUT_POST, 'include_billing_address' );
 		
     if ( $dev_id || $product_id || $deal_product_id ) {
       
@@ -403,7 +412,8 @@ class Ddb_Plugin extends Ddb_Core {
 				'deal_product_id'     => $deal_product_id, 
 				'include_free_orders' => $free_orders,
 				'save_to_file'        => $save_to_file,
-				'skip_deal_shop_check' => $skip_deal_shop_check
+				'skip_deal_shop_check' => $skip_deal_shop_check,
+				'include_billing_address' => $include_billing_address
 			];
       
 			$report_name          = is_object( $developer_term ) ? $developer_term->name : 'products';
@@ -633,6 +643,13 @@ class Ddb_Plugin extends Ddb_Core {
 				'name'        => "skip_deal_shop_check",
 				'type'        => 'checkbox',
 				'label'       => 'Skip deal/shop check ( added for Black Friday products )',
+        'value'       => 0,
+        'description' => ''
+			),
+      array(
+				'name'        => "include_billing_address",
+				'type'        => 'checkbox',
+				'label'       => 'Include billing address into report',
         'value'       => 0,
         'description' => ''
 			),

@@ -683,6 +683,20 @@ class Ddb_Report_Generator extends Ddb_Core {
         $processed_orders = 0;
 
         $columns = self::$report_columns['orders'];
+        
+        // Optionally include billing address column if requested.
+        if ( $report_settings['include_billing_address'] ?? false ) {
+          // Insert 'address' column after 'email'.
+          $new_columns = array();
+          foreach ( $columns as $key => $name ) {
+            $new_columns[ $key ] = $name;
+            if ( 'email' === $key ) {
+              $new_columns['address'] = 'Billing address';
+            }
+          }
+          $columns = $new_columns;
+        }
+        
         $report_lines = [];
         $total = 0;
         $total_refunded = 0;
@@ -699,7 +713,7 @@ class Ddb_Report_Generator extends Ddb_Core {
 
           $report_line = [];
           foreach ( $columns as $key => $name ) {
-            $report_line[] = $order_line[$key];
+            $report_line[] = $order_line[ $key ] ?? '';
           }
 
           $report_lines[] = $report_line;
@@ -917,6 +931,19 @@ class Ddb_Report_Generator extends Ddb_Core {
       
       $columns = self::$report_columns['orders'];
       
+      // Optionally include billing address column if requested.
+      if ( $report_settings['include_billing_address'] ?? false ) {
+        // Insert 'address' column after 'full_name'.
+        $new_columns = array();
+        foreach ( $columns as $key => $name ) {
+          $new_columns[ $key ] = $name;
+          if ( 'email' === $key ) {
+            $new_columns['address'] = 'Billing address';
+          }
+        }
+        $columns = $new_columns;
+      }
+      
       $report_lines = [];
       $total = 0;
       $total_refunded = 0;
@@ -933,7 +960,7 @@ class Ddb_Report_Generator extends Ddb_Core {
         
         $report_line = [];
         foreach ( $columns as $key => $name ) {
-          $report_line[] = $order_line[$key];
+          $report_line[] = $order_line[ $key ] ?? '';
         }
         
         $report_lines[] = $report_line;
