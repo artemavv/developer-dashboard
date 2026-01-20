@@ -6,7 +6,7 @@ Description: Provides access to the personal dashboard for each developer
 Author: Artem Avvakumov
 License: GPL2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Version: 0.2.6
+Version: 0.2.7
 */
 
 /*
@@ -28,13 +28,13 @@ Version: 0.2.6
 require_once 'includes.php';
 
 
-define( 'DDB_VERSION', '0.2.6' );
+define( 'DDB_VERSION', '0.2.7' );
 define( 'DDB_TEXT_DOMAIN', 'developer-dashboard' );
 
 $plugin_root = __FILE__;
 
 register_activation_hook( $plugin_root, array('Ddb_Plugin', 'install' ) );
-register_deactivation_hook( $plugin_root, array('Ddb_Plugin', 'uninstall' ) );
+//register_deactivation_hook( $plugin_root, array('Ddb_Plugin', 'uninstall' ) );
 
 /**** Initialise Plugin ****/
 

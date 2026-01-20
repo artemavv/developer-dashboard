@@ -219,7 +219,7 @@ class Ddb_Cron_Generator extends Ddb_Core {
 	 * 
 	 * @return array
 	 */
-	public function get_developers_list() {
+	public static function get_developers_list() {
 		
 		$list = array();
 		
@@ -279,6 +279,9 @@ class Ddb_Cron_Generator extends Ddb_Core {
 
 	public static function restart_processing() {
 		self::wc_log( 'Restarted cron', array() );
+
+		$parameters = get_option( self::OPTION_NAME__PARAMETERS );
+		
 
 		if ( ! wp_next_scheduled( self::HOOK_NAME ) ) {
 

@@ -51,6 +51,8 @@ class Ddb_Core {
   public const PM__TRANSFER_ACH           = 'ach';
   public const PM__PAYPAL                 = 'paypal';
   public const PM__BOFA                   = 'bofa';
+  public const PM__XCHANGE                = 'xchange';
+  public const PM__PLUGIVERY              = 'plugivery';
   
   public static $option_names = [
     'include_notes_into_report'     => false,
@@ -92,6 +94,8 @@ class Ddb_Core {
     self::PM__TRANSFER_ACH                => 'Bank Transfer ACH',
     self::PM__PAYPAL                      => 'PayPal',
     self::PM__BOFA                        => 'Bank of America',
+    self::PM__XCHANGE                     => 'XCHANGE',
+    self::PM__PLUGIVERY                   => 'Plugivery',
   ];
   
   public static $profit_ratio_options = [

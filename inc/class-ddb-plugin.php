@@ -714,6 +714,7 @@ class Ddb_Plugin extends Ddb_Core {
 					<input type="submit" id="ddb-button-start-cron" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_START_CRON_REPORTS_GENERATION; ?>" />
 					<input type="submit" id="ddb-button-re-generate-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_RESTART_CRON_REPORTS_GENERATION; ?>" />
 					<br><br>
+          <input type="submit" id="ddb-button-stop-cron" name="ddb-button" class="button" value="<?php echo self::ACTION_STOP_CRON_REPORTS_GENERATION; ?>" />
 				<?php endif; ?>
 					
 				<?php if ( $cron_is_running ): ?>
@@ -830,7 +831,7 @@ class Ddb_Plugin extends Ddb_Core {
       
       $start = $summary['start_date'] ?? '';
       $end = $summary['end_date'] ?? '';
-      $gen_date = date('Y-m-d H:i', $timestamp );
+      $gen_date = date('Y-m-d H:i', intval( $timestamp ) );
       $summary_names[$timestamp] = " From $start to $end (generated on $gen_date)";
     }
     
@@ -878,6 +879,7 @@ class Ddb_Plugin extends Ddb_Core {
       
     </form>
     <?php 
+	
   }
 
 }
