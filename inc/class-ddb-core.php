@@ -62,7 +62,30 @@ class Ddb_Core {
 	public static $default_option_values = [
     'include_notes_into_report' => false
 	];
-    
+
+  
+  public static $black_friday_product_ids = [
+    3657391,
+    3657407,
+    3657438,
+    3657440,
+    2780484,
+    3657443,
+    3657522,
+    3657528,
+    3657532,
+    3627402,
+    3657542,
+    1269644,
+    2895965,
+    3618927,
+    3630964,
+    3657589,
+    3657593,
+    1269978
+	];
+  
+  
   /**
    * List of settings used for each individual developer profile.
    * 

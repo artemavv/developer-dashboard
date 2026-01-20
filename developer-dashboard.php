@@ -78,3 +78,28 @@ if ( filter_input( INPUT_POST, Ddb_Core::BUTTON_SUMBIT ) === Ddb_Frontend::ACTIO
   add_action( 'init', array( 'Ddb_Report_Generator', 'validate_and_generate_xlsx_report_for_developer' ) );
 }
 
+/**
+ * Copy-pasted from:
+ * 
+ * @snippet       WooCommerce Prevent Duplicate Order
+ * @author        Rodolfo Melogli, Business Bloomer
+ * @compatible    WooCommerce 9
+ * @community     https://businessbloomer.com/club/
+ */
+ 
+add_action( 'woocommerce_checkout_process', 'apd_prevent_duplicate_orders' );
+ 
+function apd_prevent_duplicate_orders() {
+    $args = [
+        'limit' => 1,
+        'customer' => $_POST['billing_email'],
+        'date_created' => '>' . ( time() - 2.5 * MINUTE_IN_SECONDS ),
+        'status' => wc_get_is_paid_statuses(),
+        'total' => WC()->cart->get_total( 'edit' ),
+        'return' => 'ids',
+    ];
+    $orders = wc_get_orders( $args );
+    if ( $orders ) {
+      wc_add_notice( __( 'It looks like you already placed this order recently. Please wait a minute before trying again.' ), 'error' );
+    }
+}

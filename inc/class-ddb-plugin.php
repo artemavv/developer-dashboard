@@ -120,7 +120,7 @@ class Ddb_Plugin extends Ddb_Core {
    * for the case when email is sent to a developer
    * 
    */ 
-  public function attach_developer_taxonomy_to_new_user( array $email, object $user, $blogname ) {
+  public static function attach_developer_taxonomy_to_new_user( array $email, object $user, $blogname ) {
    
     $user_roles = implode( '', $user->roles );
     
@@ -184,7 +184,8 @@ class Ddb_Plugin extends Ddb_Core {
        
         case self::ACTION_GENERATE_REPORT_TABLE:
           
-          $report_settings = [ 'developer_id' => $dev_id, 'product_id' => $product_id, 'deal_product_id' => $deal_product_id , 'include_free_orders' => $free_orders ];
+          $skip_deal_shop_check = (bool) filter_input( INPUT_POST, 'skip_deal_shop_check' );
+          $report_settings = [ 'developer_id' => $dev_id, 'product_id' => $product_id, 'deal_product_id' => $deal_product_id , 'include_free_orders' => $free_orders, 'skip_deal_shop_check' => $skip_deal_shop_check ];
           $result = self::generate_table_sales_report_for_admin( $start_date, $end_date, $report_settings );
           break;
        
@@ -199,11 +200,14 @@ class Ddb_Plugin extends Ddb_Core {
 					
 					if ( ! $errors_found ) {
 						
+						$use_bf_products = (bool) filter_input( INPUT_POST, 'use_bf_products' );
+						
 						$result = "<h2 style='color:purple;'>Started cron generation of all developer reports (using sales from $start_date to $end_date)</h2>";
 
 						$parameters = array(
 							'start_date' => $start_date,
-							'end_date' => $end_date
+							'end_date' => $end_date,
+							'use_bf_products' => $use_bf_products
 						);
 						Ddb_Cron_Generator::start_processing( $parameters );
 					}
@@ -386,6 +390,7 @@ class Ddb_Plugin extends Ddb_Core {
     $deal_product_id  = sanitize_text_field( filter_input( INPUT_POST, 'deal_product_id') ?? 0 );
     $dev_id           = filter_input( INPUT_POST, 'developer_id' );
 		$save_to_file     = filter_input( INPUT_POST, 'save_to_file' );
+		$skip_deal_shop_check = (bool) filter_input( INPUT_POST, 'skip_deal_shop_check' );
 		
     if ( $dev_id || $product_id || $deal_product_id ) {
       
@@ -397,7 +402,8 @@ class Ddb_Plugin extends Ddb_Core {
 				'product_id'          => $product_id, 
 				'deal_product_id'     => $deal_product_id, 
 				'include_free_orders' => $free_orders,
-				'save_to_file'        => $save_to_file 
+				'save_to_file'        => $save_to_file,
+				'skip_deal_shop_check' => $skip_deal_shop_check
 			];
       
 			$report_name          = is_object( $developer_term ) ? $developer_term->name : 'products';
@@ -623,6 +629,13 @@ class Ddb_Plugin extends Ddb_Core {
         'value'       => 0,
         'description' => ''
 			),
+      array(
+				'name'        => "skip_deal_shop_check",
+				'type'        => 'checkbox',
+				'label'       => 'Skip deal/shop check ( added for Black Friday products )',
+        'value'       => 0,
+        'description' => ''
+			),
 			array(
 				'name'        => "save_to_file",
 				'type'        => 'checkbox',
@@ -708,6 +721,8 @@ class Ddb_Plugin extends Ddb_Core {
         </tbody>
       </table>
     
+      <label for="ddb_use_bf_products">Include only Black Friday products into reports</label>
+      <input type="checkbox" id="ddb_use_bf_products" name="use_bf_products" value="1" class="ddb-checkbox-field">
       
       <p class="submit">
 				<?php if ( ! $cron_is_running ): ?>

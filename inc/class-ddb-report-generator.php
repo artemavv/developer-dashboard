@@ -12,7 +12,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * 
    * For each developer's product in that order, a separate line is generated - it will go into the final report
    */
-  public static function get_single_order_info( int $order_id, ?object $developer_term, $product_id = false, $deal_products_only = false ) {
+  public static function get_single_order_info( int $order_id, ?object $developer_term, $product_id = false, $deal_products_only = false, $use_bf_products = false, $skip_deal_shop_check = false ) {
   
     $order_lines = false;
     
@@ -20,7 +20,7 @@ class Ddb_Report_Generator extends Ddb_Core {
 
     if ( is_object( $order ) ) {
       
-      $order_items_data = self::filter_target_items_in_order( $order, $developer_term, $product_id, $deal_products_only );
+      $order_items_data = self::filter_target_items_in_order( $order, $developer_term, $product_id, $deal_products_only, $use_bf_products, $skip_deal_shop_check );
       $order_lines = array();
 
       //self::wc_log( "get_single_order_info $order_id ORDER ITEMS " );
@@ -120,11 +120,16 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param $end_date string
    * @param $developer_name string
    * @param $report_settings array [ developer_id, product_id, deal_product_id, include_free_orders ] 
+   * @param $use_bf_products bool
    */
-  public static function get_target_order_ids( string $start_date, string $end_date, string $developer_name = '', array $report_settings = array() ) {
+  public static function get_target_order_ids( string $start_date, string $end_date, string $developer_name = '', array $report_settings = array(), $use_bf_products = false ) {
     
     $product_id = 0;
     
+    if ( $use_bf_products ) {
+      $developer_name = '';
+    }
+
     if ( $report_settings['product_id'] ?? false ) {
       $product_id = $report_settings['product_id'];
     }
@@ -132,7 +137,7 @@ class Ddb_Report_Generator extends Ddb_Core {
       $product_id = $report_settings['deal_product_id'];
     }
       
-    if ( ! $developer_name && ! $product_id ) {
+    if ( ! $developer_name && ! $product_id && ! $use_bf_products ) {
       return false; // not enough search info
     }
     
@@ -149,6 +154,10 @@ class Ddb_Report_Generator extends Ddb_Core {
     if ( $product_id != 0 ) {
       $maybe_add_product_join = " LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im2 on im2.`order_item_id` = oi.`order_item_id` ";
       $product_condition = $wpdb->prepare( "im2.`meta_key` = '_product_id' AND im2.`meta_value` = %d ", $product_id );
+    }
+    elseif ( $use_bf_products ) {
+      $maybe_add_product_join = " LEFT JOIN `{$wp}woocommerce_order_itemmeta` AS im2 on im2.`order_item_id` = oi.`order_item_id` ";
+      $product_condition = "im2.`meta_key` = '_product_id' AND im2.`meta_value` IN (" . implode( ',', self::$black_friday_product_ids ) . ")";
     }
     else {
       $maybe_add_product_join = '';
@@ -182,8 +191,8 @@ class Ddb_Report_Generator extends Ddb_Core {
       AND wco.status = 'wc-completed'
       ORDER BY wco.date_created_gmt DESC";
     
-		
-		//self::wc_log( $query_sql );
+		self::wc_log( "get_target_order_ids - $developer_name - $product_id - $use_bf_products" );
+		self::wc_log( $query_sql );
 		
     $ids = array();
     
@@ -286,7 +295,7 @@ class Ddb_Report_Generator extends Ddb_Core {
    * @param int $target_product_id for the case when we search for specific product, zero otherwise
    * @param bool $deal_products_only
    */
-  public static function filter_target_items_in_order( object $order, ?object $developer_term, $target_product_id = 0, $deal_products_only = false ) {
+  public static function filter_target_items_in_order( object $order, ?object $developer_term, $target_product_id = 0, $deal_products_only = false, $use_bf_products = false, $skip_deal_shop_check = false ) {
     
     $results = array();     
     
@@ -301,7 +310,10 @@ class Ddb_Report_Generator extends Ddb_Core {
 
       $product_matches_target = false; 
       
-      if ( is_object($developer_term) ) {
+      if ( $use_bf_products ) {
+        $product_matches_target = in_array( $item_id, self::$black_friday_product_ids );
+      }
+      elseif ( is_object($developer_term) ) {
         $product_matches_target = has_term( $developer_term->term_id, 'developer', $item_id );
       }
       elseif ( $target_product_id > 0 ) {
@@ -312,8 +324,14 @@ class Ddb_Report_Generator extends Ddb_Core {
 
       if ( $product_matches_target ) {
         
+        // If use_bf_products is enabled, only include Black Friday products
+        if ( $use_bf_products && ! in_array( $item_id, self::$black_friday_product_ids ) ) {
+          continue;
+        }
+        
         // check for the match between target product and filter restriction
-        if ( ($deal_products_only && $is_shop_product != 'yes') || (! $deal_products_only && $is_shop_product == 'yes') ) {
+        // Skip this check if skip_deal_shop_check is enabled
+        if ( $skip_deal_shop_check || ( ($deal_products_only && $is_shop_product != 'yes') || (! $deal_products_only && $is_shop_product == 'yes') ) ) {
 
           $item_result['product_id']              = $item_id;
           $item_result['name']                    = $item['name'];
@@ -353,19 +371,24 @@ class Ddb_Report_Generator extends Ddb_Core {
           } // endforeach meta
 
           if ( is_object($developer_term) && $item_result['developer_name'] != $developer_term->name ) {
-            continue; // if developer is specified, then exclude products from other developers
+            if ( ! $use_bf_products ) { // disable developer check for BF products
+              continue; // if developer is specified, then exclude products from other developers
+            }
           }
 
-          if ( ! $deal_products_only && $item_result['is_deal_product'] ) {
-            continue; // exclude deal products if we are NOT looking for deal products
-          }
+          // Skip deal/shop product checks if skip_deal_shop_check is enabled
+          if ( ! $skip_deal_shop_check ) {
+            if ( ! $deal_products_only && $item_result['is_deal_product'] ) {
+              continue; // exclude deal products if we are NOT looking for deal products
+            }
 
-          if ( $deal_products_only && ! $item_result['is_deal_product'] ) {
-            continue; // exclude non-deal products if we are looking for deal products
-          }
-          
-          if ( $deal_products_only && $item_result['is_shop_product'] ) {
-            continue; // exclude shop products if we are looking for deal products
+            if ( $deal_products_only && ! $item_result['is_deal_product'] ) {
+              continue; // exclude non-deal products if we are looking for deal products
+            }
+            
+            if ( $deal_products_only && $item_result['is_shop_product'] ) {
+              continue; // exclude shop products if we are looking for deal products
+            }
           }
 
           self::log(['$item_result', $item_result ] );
@@ -634,10 +657,15 @@ class Ddb_Report_Generator extends Ddb_Core {
     
     if ( $developer_name || $product_id ) {
       
-      $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings );
+      $use_bf_products = $report_settings['use_bf_products'] ?? false;
+      $skip_deal_shop_check = $report_settings['skip_deal_shop_check'] ?? false;
+
+      $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings, $use_bf_products );
+      
+      
       
       foreach ( $paid_order_ids as $order_id ) {
-        $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only );
+        $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only, $use_bf_products, $skip_deal_shop_check );
 
         if ( $order_lines ) {
           $orders_data = array_merge( $orders_data, $order_lines );
@@ -859,7 +887,9 @@ class Ddb_Report_Generator extends Ddb_Core {
 
     $developer_name = is_object( $developer_term ) ? $developer_term->name : '';
     
-    $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings );
+    $use_bf_products = $report_settings['use_bf_products'] ?? false;
+    $skip_deal_shop_check = $report_settings['skip_deal_shop_check'] ?? false;
+    $paid_order_ids = self::get_target_order_ids( $start_date, $end_date, $developer_name, $report_settings, $use_bf_products );
 
     $deal_products_only = false;
     
@@ -872,7 +902,7 @@ class Ddb_Report_Generator extends Ddb_Core {
     }
     
     foreach ( $paid_order_ids as $order_id ) {
-      $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only );
+      $order_lines = self::get_single_order_info( $order_id, $developer_term, $product_id, $deal_products_only, $use_bf_products, $skip_deal_shop_check );
 
       if ( $order_lines ) {
         $orders_data = array_merge( $orders_data, $order_lines );

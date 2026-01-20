@@ -196,6 +196,11 @@ class Ddb_Cron_Generator extends Ddb_Core {
 			'save_path'			=> $this->cron_params['folder_path'] . '/' . $filename 
 		);
 		
+		// Pass use_bf_products setting if it exists
+		if ( isset( $this->cron_params['use_bf_products'] ) ) {
+			$settings['use_bf_products'] = $this->cron_params['use_bf_products'];
+		}
+		
 		$processed_orders = Ddb_Report_Generator::generate_xlsx_report( $developer_term, $start_date, $end_date, $settings );
 
 		if ( $processed_orders ) {
