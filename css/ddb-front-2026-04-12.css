@@ -469,17 +469,6 @@ td.ddb-product-table__action a { /**/
   min-width: 220px;
 }
 
-.ddb-product-wizard .wizard-table tr {
-    transition-property: opacity;
-    transition-duration: 0.3s;
-    transition-delay: 0.2s;
-}
-
-.ddb-product-wizard .wizard-table input[type="checkbox"] {
-    transform: scale(1.5);
-    margin: 10px;
-}
-
 .ddb-product-wizard .wizard-actions {
   margin-top: 18px;
   display: flex;

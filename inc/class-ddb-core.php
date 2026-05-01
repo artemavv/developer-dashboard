@@ -12,7 +12,14 @@ class Ddb_Core {
   public const DEV_ROLE_NAME = 'apd_developer';
   
 	public static $prefix = 'ddb_';
-	
+
+	/**
+	 * Used with the_editor filter to add HTML5 required on wp_editor textareas.
+	 *
+	 * @var bool
+	 */
+	private static $ddb_editor_required_for_next = false;
+
   // Available file format for the generated reports
   public const FILE_FORMAT_XLSX   = 'xlsx';
   public const FILE_FORMAT_HTML   = 'html';
@@ -21,6 +28,11 @@ class Ddb_Core {
   // names of HTML fields in the form
   public const FIELD_DATE_START       = 'report_date_start';
   public const FIELD_DATE_END         = 'report_date_end';
+  public const FIELD_PRODUCT_TITLE              = 'ddb_product_title';
+  public const FIELD_PRODUCT_SHORT_DESCRIPTION  = 'ddb_product_short_description';
+  public const STATUS_APPROVED                  = '0';
+  public const STATUS_PUBLISHED_AND_EDITED      = '1';
+  public const STATUS_DRAFT                     = '2';
   
   // name of the submit button that triggers POST form
   public const BUTTON_SUMBIT = 'ddb-button';
@@ -635,6 +647,21 @@ WHERE p.post_type = 'your_post_type'
     
     return $out;
 	}
+
+	/**
+	 * Field label HTML with optional red asterisk for required fields.
+	 *
+	 * @param array<string, mixed> $field Field definition (expects 'label', optional 'required').
+	 * @return string Safe HTML (label is escaped; asterisk is a span).
+	 */
+	public static function field_label_with_required_suffix( array $field ) {
+		$label = isset( $field['label'] ) ? (string) $field['label'] : '';
+		$out   = esc_html( $label );
+		if ( ! empty( $field['required'] ) ) {
+			$out .= '<span class="ddb-required-asterisk" aria-hidden="true">*</span>';
+		}
+		return $out;
+	}
 	
 	/**
 	 * Generates HTML code for input row in table
@@ -645,14 +672,28 @@ WHERE p.post_type = 'your_post_type'
 	public static function display_field_in_row($field, $value) {
     
 		$label = $field['label']; // $label = __($field['label'], DDB_TEXT_DOMAIN);
-		
-		$value = htmlspecialchars($value);
+
 		$field['id'] = str_replace( '_', '-', $field['name'] );
+
+		if ( 'richtext' !== $field['type'] ) {
+			$value = htmlspecialchars( (string) $value );
+		} else {
+			$value = is_string( $value ) ? $value : '';
+		}
 		
 		// 1. Make HTML for input
 		switch ($field['type']) {
 			case 'text':
 				$input_HTML = self::make_text_field( $field, $value );
+				break;
+			case 'url':
+				$input_HTML = self::make_url_field( $field, $value );
+				break;
+			case 'richtext':
+				$input_HTML = self::make_richtext_field( $field, $value );
+				break;
+			case 'image':
+				$input_HTML = self::make_image_field( $field, $value );
 				break;
 			case 'dropdown':
 				$input_HTML = self::make_dropdown_field( $field, $value );
@@ -671,7 +712,16 @@ WHERE p.post_type = 'your_post_type'
 		}
 		
 		
-		// 2. Make HTML for table cell
+		// 2. Make HTML for table cell (thead shows column titles; SR-only line repeats title + required marker).
+		$sr_title = '';
+		if ( '' !== (string) $label && 'hidden' !== $field['type'] ) {
+			$sr_plain = esc_html( $label );
+			if ( ! empty( $field['required'] ) ) {
+				$sr_plain .= ' *';
+			}
+			$sr_title = '<span class="screen-reader-text">' . $sr_plain . '</span>';
+		}
+
 		switch ( $field['type'] ) {
 			case 'hidden':
 				$table_cell_html = <<<EOT
@@ -679,12 +729,13 @@ WHERE p.post_type = 'your_post_type'
 EOT;
 				break;
 			case 'text':
+			case 'url':
+			case 'richtext':
+			case 'image':
 			case 'textarea':
 			case 'checkbox':
 			default:
-				$table_cell_html = <<<EOT
-		<td>{$input_HTML}</td>
-EOT;
+				$table_cell_html = '<td>' . $sr_title . $input_HTML . '</td>';
 				
 		}
 
@@ -698,7 +749,7 @@ EOT;
    * 
 	 * @param array $field
 	 * @param mixed $value
-   * @return string HTML
+	 * @return string HTML
 	 */
 	public static function display_field_set( $field_set ) {
 		foreach ( $field_set as $field ) {
@@ -710,8 +761,7 @@ EOT;
 			echo self::make_field( $field, $value );
 		}
 	}
-	
-  
+
 	/**
 	 * Generates HTML code with TR row containing specified field input
    * 
@@ -720,11 +770,13 @@ EOT;
    * @return string HTML
 	 */
 	public static function make_field( $field, $value ) {
-		$label = $field['label'];
+		$label = self::field_label_with_required_suffix( $field );
 		
 		if ( ! isset( $field['style'] ) ) {
 			$field['style'] = '';
 		}
+
+		$label_for = 'ddb_' . $field['id'];
 		
 		// 1. Make HTML for input
 		switch ( $field['type'] ) {
@@ -733,6 +785,18 @@ EOT;
 				break;
 			case 'text':
 				$input_html = self::make_text_field( $field, $value );
+				break;
+			case 'number':
+				$input_html = self::make_number_field( $field, $value );
+				break;
+			case 'url':
+				$input_html = self::make_url_field( $field, $value );
+				break;
+			case 'richtext':
+				$input_html = self::make_richtext_field( $field, $value );
+				break;
+			case 'image':
+				$input_html = self::make_image_field( $field, $value );
 				break;
 			case 'date':
 				$input_html = self::make_date_field( $field, $value );
@@ -762,7 +826,7 @@ EOT;
 			case 'checkbox':
 				$table_row_html = <<<EOT
 		<tr style="display:{$display}" >
-			<td colspan="3" class="col-checkbox">{$input_html}<label for="ddb_{$field['id']}">$label</label></td>
+			<td colspan="3" class="col-checkbox">{$input_html}<label for="{$label_for}">$label</label></td>
 		</tr>
 EOT;
 				break;
@@ -775,12 +839,16 @@ EOT;
 				break;
 			case 'dropdown':
 			case 'text':
+			case 'url':
+			case 'richtext':
+			case 'image':
 			case 'textarea':
+			case 'number':
 			default:
 				if (isset($field['description']) && $field['description']) {
 					$table_row_html = <<<EOT
 		<tr style="display:{$display}" >
-			<td class="col-name" style="{$field['style']}"><label for="ddb_{$field['id']}">$label</label></td>
+			<td class="col-name" style="{$field['style']}"><label for="{$label_for}">$label</label></td>
 			<td class="col-input">{$input_html}</td>
 			<td class="col-info">
 				{$field['description']}
@@ -791,7 +859,7 @@ EOT;
 				else {
 				$table_row_html = <<<EOT
 		<tr style="display:{$display}" >
-			<td class="col-name" style="{$field['style']}"><label for="ddb_{$field['id']}">$label</label></td>
+			<td class="col-name" style="{$field['style']}"><label for="{$label_for}">$label</label></td>
 			<td class="col-input">{$input_html}</td>
 			<td class="col-info"></td>
 		</tr>
@@ -821,10 +889,167 @@ EOT;
 	 * @param array $field
 	 * @param array $value
 	 */
-	public static function make_text_field($field, $value) {
-		$out = <<<EOT
-			<input type="text" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="ddb-text-field">
+	public static function make_text_field( $field, $value ) {
+		$class     = isset( $field['class'] ) ? esc_attr( $field['class'] ) : 'ddb-text-field';
+		$maxlength = isset( $field['maxlength'] ) ? ' maxlength="' . absint( $field['maxlength'] ) . '"' : '';
+		$required  = ! empty( $field['required'] ) ? ' required' : '';
+		$out       = <<<EOT
+			<input type="text" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="{$class}"{$maxlength}{$required}>
 EOT;
+		return $out;
+	}
+
+
+	/**
+	 * Generates HTML code for number field input
+	 * @param array $field
+	 * @param array $value
+	 */
+	public static function make_number_field( $field, $value ) {
+		$class     = isset( $field['class'] ) ? esc_attr( $field['class'] ) : 'ddb-number-field';
+		$required  = ! empty( $field['required'] ) ? ' required' : '';
+		$out       = <<<EOT
+			<input type="number" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="{$class}"{$required}>
+EOT;
+		return $out;
+	}
+
+	/**
+	 * @param array  $field Field definition.
+	 * @param string $value Current value.
+	 * @return string HTML
+	 */
+	public static function make_url_field( $field, $value ) {
+		$value = ( false === $value || null === $value ) ? '' : (string) $value;
+		$value = esc_attr( $value );
+		$out   = <<<EOT
+			<input type="url" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="ddb-url-field">
+EOT;
+		return $out;
+	}
+
+	/**
+	 * @param string $output Editor markup from wp_editor().
+	 * @return string
+	 */
+	private static function filter_the_editor_add_required_attribute( $output ) {
+		if ( self::$ddb_editor_required_for_next ) {
+			$output = preg_replace( '/<textarea(\s)/', '<textarea required$1', $output, 1 );
+		}
+		return $output;
+	}
+
+	/**
+	 * Rich text: WordPress visual/HTML editor (HTML submitted as stored).
+	 *
+	 * @param array  $field Field definition.
+	 * @param string $value Current HTML content.
+	 * @return string HTML
+	 */
+	public static function make_richtext_field( $field, $value ) {
+		$content = ( false === $value || null === $value ) ? '' : (string) $value;
+		$rows    = isset( $field['rows'] ) ? (int) $field['rows'] : 10;
+		$class = 'ddb-richtext-field';
+		if ( ! empty( $field['class'] ) ) {
+			$class .= ' ' . (string) $field['class'];
+		}
+		$editor_id = 'ddb_rt_' . sanitize_key( (string) $field['id'] );
+		if ( 'ddb_rt_' === $editor_id ) {
+			$editor_id .= uniqid( '_f', false );
+		}
+
+		$settings = array(
+			'textarea_name' => $field['name'],
+			'textarea_rows' => max( 5, $rows ),
+			'editor_class'  => trim( $class ),
+			'media_buttons' => false,
+			'wpautop'       => false,
+			'teeny'         => true,
+			'quicktags'     => true,
+			// Keep existing spacing/newlines from stored HTML when loading editor content.
+			'tinymce'       => array(
+				'wpautop'            => false,
+				'forced_root_block'  => false,
+				'force_br_newlines'  => true,
+				'force_p_newlines'   => false,
+				'convert_newlines_to_brs' => false,
+				'content_style'      => 'body.mce-content-body{white-space:pre-wrap;}',
+			),
+		);
+
+		$force_richedit = ! is_admin() && ! user_can_richedit();
+		if ( $force_richedit ) {
+			add_filter( 'user_can_richedit', '__return_true', 999 );
+		}
+
+		if ( ! empty( $field['required'] ) ) {
+			self::$ddb_editor_required_for_next = true;
+			//add_filter( 'the_editor', array( __CLASS__, 'filter_the_editor_add_required_attribute' ), 10, 1 );
+		}
+
+		ob_start();
+		wp_editor( $content, $editor_id, $settings );
+		$html = (string) ob_get_clean();
+
+		if ( ! empty( $field['required'] ) ) {
+			//remove_filter( 'the_editor', array( __CLASS__, 'filter_the_editor_add_required_attribute' ), 10, 1 );
+			self::$ddb_editor_required_for_next = false;
+		}
+		if ( $force_richedit ) {
+			remove_filter( 'user_can_richedit', '__return_true', 999 );
+		}
+
+		return '<div class="ddb-richtext-field-wrap">' . $html . '</div>';
+	}
+
+	/**
+	 * Image file input (form must use enctype="multipart/form-data").
+	 *
+	 * @param array       $field Field definition.
+	 * @param string|bool $value Optional current URL or attachment id for display.
+	 * @return string HTML
+	 */
+	public static function make_image_field( $field, $value ) {
+		$id   = esc_attr( $field['id'] );
+		$name = esc_attr( $field['name'] );
+		$out  = '<input type="file" id="ddb_' . $id . '" name="' . $name . '" class="ddb-image-field" accept="image/*">';
+		if ( $value ) {
+			$value_str = is_scalar( $value ) ? (string) $value : '';
+			$preview   = '';
+			if ( '' !== $value_str ) {
+				$attachment_id = 0;
+				if ( is_numeric( $value_str ) ) {
+					$attachment_id = (int) $value_str;
+				} elseif ( function_exists( 'attachment_url_to_postid' ) ) {
+					$maybe = attachment_url_to_postid( $value_str );
+					if ( $maybe ) {
+						$attachment_id = (int) $maybe;
+					}
+				}
+				if ( $attachment_id > 0 && function_exists( 'wp_attachment_is_image' ) && wp_attachment_is_image( $attachment_id ) ) {
+					$preview = wp_get_attachment_image(
+						$attachment_id,
+						'full',
+						false,
+						array(
+							'class'    => 'ddb-image-field-preview',
+							'loading'  => 'lazy',
+							'decoding' => 'async',
+							'alt'      => '',
+						)
+					);
+				} elseif ( filter_var( $value_str, FILTER_VALIDATE_URL ) ) {
+					$preview = '<img src="' . esc_url( $value_str ) . '" alt="" class="ddb-image-field-preview" loading="lazy" decoding="async" />';
+				}
+			}
+			$out .= '<p class="ddb-image-field-current">' . esc_html__( 'Current:', DDB_TEXT_DOMAIN ) . ' ';
+			if ( $preview ) {
+				$out .= '<span class="ddb-image-field-current__preview">' . $preview . '</span>';
+			} else {
+				$out .= '<span class="ddb-image-field-current__value">' . esc_html( $value_str ) . '</span>';
+			}
+			$out .= '</p>';
+		}
 		return $out;
 	}
   
@@ -848,9 +1073,12 @@ EOT;
 	 * @param array $field
 	 * @param array $value
 	 */
-	public static function make_textarea_field($field, $value) {
-		$out = <<<EOT
-			<textarea id="ddb_{$field['id']}" name="{$field['name']}" cols="{$field['cols']}" rows="{$field['rows']}" value="">{$value}</textarea>
+	public static function make_textarea_field( $field, $value ) {
+		$cols  = isset( $field['cols'] ) ? (int) $field['cols'] : 40;
+		$rows  = isset( $field['rows'] ) ? (int) $field['rows'] : 5;
+		$class = isset( $field['class'] ) ? ' class="' . esc_attr( $field['class'] ) . '"' : '';
+		$out   = <<<EOT
+			<textarea id="ddb_{$field['id']}" name="{$field['name']}" cols="{$cols}" rows="{$rows}"{$class}>{$value}</textarea>
 EOT;
 		return $out;
 	}

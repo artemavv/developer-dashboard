@@ -7,6 +7,46 @@ class Ddb_Frontend extends Ddb_Core {
   public const ACTION_GENERATE_SALES_REPORT = 'Show sales report';
   public const ACTION_SHOW_ORDERS_REPORT = 'Show report';
   public const ACTION_DOWNLOAD_ORDERS_REPORT = 'Export report to Excel';
+  public const ACTION_CREATE_DEVELOPER_PRODUCT = 'Create product';
+  public const ACTION_EDIT_DEVELOPER_PRODUCT = 'Update product';
+  public const ACTION_DELETE_DEVELOPER_PRODUCT = 'Delete product';
+  public const ACTION_EDIT_PRODUCT_LICENSE = 'Update license keys';
+  public const NONCE_ACTION_CREATE_PRODUCT = 'ddb_create_product';
+  public const NONCE_ACTION_EDIT_PRODUCT = 'ddb_edit_product';
+  public const NONCE_ACTION_EDIT_LICENSE = 'ddb_edit_license';
+  private static $product_form_notice_html = '';
+  private static $product_form_repopulate_values = false;
+  /** @var bool Set when a developer product was deleted in this request (used to show products list). */
+  private static $product_deleted_this_request = false;
+  /** @var bool Set when a draft product was created in this request (create-product section shows notice only). */
+  private static $draft_product_created_this_request = false;
+
+  public static function get_product_form_notice_html() {
+    return self::$product_form_notice_html;
+  }
+
+  public static function should_repopulate_product_form_values() {
+    return self::$product_form_repopulate_values;
+  }
+
+  /**
+   * Whether the current request deleted a product via the edit form (success path).
+   *
+   * @return bool
+   */
+  public static function product_was_deleted_this_request() {
+    return self::$product_deleted_this_request;
+  }
+
+  /**
+   * Whether the current request created a draft product via the create form (success path).
+   *
+   * @return bool
+   */
+  public static function draft_product_created_this_request() {
+    return self::$draft_product_created_this_request;
+  }
+
   
   /**
    * Handler for the "display_content_for_developers_only" shortcode
@@ -65,9 +105,9 @@ class Ddb_Frontend extends Ddb_Core {
    * @param array $atts
    * @return string HTML 
    */
-  public static function render_developer_dashboard( $atts ) {
+  public static function render_developer_orders_dashboard( $atts ) {
     
-    $out = '<h3>Not authorized</h3>';
+    $out = self::notice_error_html( esc_html__( 'Not authorized', DDB_TEXT_DOMAIN ) );
     
     $developer_term = false;
     
@@ -119,13 +159,709 @@ class Ddb_Frontend extends Ddb_Core {
     
     return $out;
   }
+
+  /**
+   * "Your Products" tab: lists WooCommerce products in the `developer` taxonomy for the logged-in developer.
+   *
+   * @param array $atts Shortcode attributes (same as developer_dashboard).
+   * @return string HTML
+   */
+  public static function render_developer_products_dashboard( $atts ) {
+    $out = self::notice_error_html( esc_html__( 'Not authorized', DDB_TEXT_DOMAIN ) );
+
+    $input_fields = array(
+      'user_id' => 0,
+    );
+    extract( shortcode_atts( $input_fields, $atts ) );
+
+    if ( 0 !== (int) $user_id ) {
+      $user = get_user_by( 'id', (int) $user_id );
+    } else {
+      $user = wp_get_current_user();
+    }
+
+    $developer_term = false;
+    if ( $user && is_array( $user->roles ) && in_array( self::DEV_ROLE_NAME, $user->roles, true ) ) {
+      $developer_term = self::find_developer_term_by_user_id( $user->ID );
+    }
+
+    if ( ! is_object( $developer_term ) || ! is_a( $developer_term, 'WP_Term' ) ) {
+      return $out;
+    }
+
+    if ( ! post_type_exists( 'product' ) ) {
+      return '<div id="developer-dashboard" class="ddb-developer-products"><p>' . esc_html__( 'The product catalog is not available on this site.', DDB_TEXT_DOMAIN ) . '</p></div>';
+    }
+
+    $all_products = get_posts(
+      array(
+        'post_type'              => 'product',
+        'post_status'            => array( 'publish', 'draft', 'pending', 'private', 'future' ),
+        'posts_per_page'         => -1,
+        'orderby'                => 'title',
+        'order'                  => 'ASC',
+        'no_found_rows'          => true,
+        'update_post_meta_cache' => true,
+        'update_post_term_cache' => false,
+        'tax_query'              => array(
+          array(
+            'taxonomy' => 'developer',
+            'field'    => 'term_id',
+            'terms'    => (int) $developer_term->term_id,
+          ),
+        ),
+      )
+    );
+
+    $published   = array();
+    $unpublished = array();
+    foreach ( $all_products as $product_post ) {
+      if ( 'publish' === $product_post->post_status ) {
+        $published[] = $product_post;
+      } else {
+        $unpublished[] = $product_post;
+      }
+    }
+
+    $url_product_wizard = esc_url( add_query_arg( 'section', 'product-wizard' ) );
+
+    $out  = '<div id="developer-dashboard" class="ddb-developer-products">';
+    $out .= '<div class="ddb-developer-products__header">';
+    $out .= '<h2>' . esc_html__( 'Your products', DDB_TEXT_DOMAIN ) . '</h2>';
+    $out .= '</div>';
+    $out .= self::render_developer_product_list_section( __( 'Published', DDB_TEXT_DOMAIN ), $published, true );
+    $out .= self::render_developer_unpublished_product_list( __( 'Unpublished', DDB_TEXT_DOMAIN ), $unpublished );
+    $out .= '</div>';
+
+    $out .= '<p class="ddb-developer-products__actions">'
+      . '<a class="ddb-button-create-product" href="' . $url_product_wizard . '">' . esc_html__( 'Add product', DDB_TEXT_DOMAIN ) . '</a> '
+      . '</p>';
+
+    return $out;
+  }
+
+  /**
+   * Process create-product POST: draft WooCommerce product + developer taxonomy.
+   *
+   * @param WP_Term $developer_term Current developer taxonomy term.
+   * @return string|int HTML notice (escaped), or 1 when a draft product was created successfully.
+   */
+  private static function handle_developer_create_product_submission( $developer_term ) {
+    if ( ! isset( $_POST['ddb_create_product_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ddb_create_product_nonce'] ) ), self::NONCE_ACTION_CREATE_PRODUCT ) ) {
+      return self::notice_error_html( esc_html__( 'Security check failed. Please try again.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $form_data = Ddb_Product_Form::collect_product_form_data_from_request();
+
+    if ( '' === $form_data['title'] ) {
+      return self::notice_error_html( esc_html__( 'Please enter a product title.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $product_id = self::insert_draft_product_for_developer( $form_data, $developer_term );
+    if ( is_wp_error( $product_id ) ) {
+      return self::notice_error_html( esc_html( $product_id->get_error_message() ) );
+    }
+    if ( ! $product_id ) {
+      return self::notice_error_html( esc_html__( 'Could not create the product. Please try again or contact support.', DDB_TEXT_DOMAIN ) );
+    }
+
+    // to set the default template for the product
+    update_post_meta( $product_id, '_jet_woo_template', 1498604 );
+    update_post_meta( $product_id, 'select-template-type-for-product-page', 'singleshopproducttemplate' );
+		update_post_meta( $product_id, 'enable-overview-section', '1' );
+		update_post_meta( $product_id, 'enable_media_section', '1' );
+		update_post_meta( $product_id, 'enable-soundcloud--key-features-section', '1' );
+		update_post_meta( $product_id, 'enable-other-product-information-section', '1' );
+    update_post_meta( $product_id, 'overview-heading', 'Overview' );
+    update_post_meta( $product_id, 'media-title', 'Media' );
+    update_post_meta( $product_id, 'key-features', 'Key Features' );
+    update_post_meta( $product_id, 'pending_apd_review', self::STATUS_DRAFT );
+    
+    
+    self::apply_wizard_product_meta_defaults( $product_id );
+
+    return (int) $product_id;
+  }
+
+  /**
+   * Process edit-product POST: update title and short description for a developer-owned product.
+   *
+   * @param WP_Term $developer_term Current developer taxonomy term.
+   * @return string HTML notice (escaped).
+   */
+  private static function handle_developer_edit_product_submission( $developer_term ) {
+    if ( ! isset( $_POST['ddb_create_product_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ddb_create_product_nonce'] ) ), self::NONCE_ACTION_EDIT_PRODUCT ) ) {
+      return self::notice_error_html( esc_html__( 'Security check failed. Please try again.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $product_id = absint( filter_input( INPUT_POST, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+    if ( ! $product_id ) {
+      $product_id = absint( filter_input( INPUT_GET, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+    }
+    if ( ! $product_id ) {
+      return self::notice_error_html( esc_html__( 'Invalid product ID.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $developer_user_id = (int) get_term_meta( (int) $developer_term->term_id, 'user_account', true );
+    if ( ! self::is_product_from_developer( $product_id, $developer_user_id ) ) {
+      return self::notice_error_html( esc_html__( 'You are not allowed to edit this product.', DDB_TEXT_DOMAIN ) );
+    }
+
+    if ( Ddb_Product_Wizard::is_deal_product( $product_id ) ) {
+      return self::notice_error_html( esc_html__( 'Deal products cannot be edited with the wizard.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $form_data = Ddb_Product_Form::collect_product_form_data_from_request();
+
+    if ( '' === $form_data['title'] ) {
+      return self::notice_error_html( esc_html__( 'Please enter a product title.', DDB_TEXT_DOMAIN ) );
+    }
+
+    
+    $product               = wc_get_product( $product_id );
+    $was_published         = ( 'publish' === get_post_status( $product_id ) );
+    $was_draft             = ( 'draft' === get_post_status( $product_id ) );
+    $pending_review_status = (string) get_post_meta( $product_id, 'pending_apd_review', true );
+    $edit_product_origin   = filter_input( INPUT_POST, 'ddb_edit_product_origin', FILTER_DEFAULT );
+    $is_wizard_edit_submit = ( is_string( $edit_product_origin ) && 'wizard' === sanitize_key( wp_unslash( $edit_product_origin ) ) );
+
+    if ( ! $product ) {
+      return self::notice_error_html( esc_html__( 'Could not load the product.', DDB_TEXT_DOMAIN ) );
+    }
+    
+    $product->set_name( $form_data['title'] );
+    $product->set_short_description( $form_data['short_description'] );
+    if ( '' !== $form_data['slug'] ) {
+      $product->set_slug( $form_data['slug'] );
+    }
+    $regular_price = isset( $form_data['regular_price'] ) ? (string) $form_data['regular_price'] : '';
+    $product->set_regular_price( $regular_price );
+    if ( $was_published && $is_wizard_edit_submit ) {
+      $product->set_status( 'draft' );
+    }
+    try {
+      $product->save();
+
+    } catch ( Exception $e ) {
+      return self::notice_error_html( esc_html__( 'Could not save the product.', DDB_TEXT_DOMAIN ) );
+    }
   
-  public static function do_action() {
-    
+
+    $result = self::handle_developer_product_license_submission( $developer_term );
+
+    Ddb_Product_Form::persist_product_meta( $product_id, $form_data['meta'] );
+    self::apply_wizard_product_meta_defaults( $product_id );
+
+    if ( $was_published && $is_wizard_edit_submit ) {
+      update_post_meta( $product_id, 'pending_apd_review', self::STATUS_PUBLISHED_AND_EDITED );
+    } elseif ( $was_draft && self::STATUS_PUBLISHED_AND_EDITED !== $pending_review_status ) {
+      update_post_meta( $product_id, 'pending_apd_review', self::STATUS_DRAFT );
+    }
+
+    Ddb_Product_Form::apply_product_taxonomy_fields_from_request( $product_id );
+    update_post_meta( $product_id, 'apd_dev_last_time_edited', time() );
+
+    $upload_result = Ddb_Product_Form::process_product_image_uploads( $product_id );
+
+    if ( is_wp_error( $upload_result ) ) {
+      $result .= self::notice_error_html( esc_html( $upload_result->get_error_message() ) );
+    }
+    else {
+      if ( $was_published && $is_wizard_edit_submit ) {
+        $result .= self::notice_success_html_with_products_link( esc_html__( 'Product updated and moved to draft for review.', DDB_TEXT_DOMAIN ), $product_id );
+      } else {
+        $result .= self::notice_success_html_with_products_link( esc_html__( 'Product updated.', DDB_TEXT_DOMAIN ), $product_id );
+      }
+    }
+
+    return $result;
+  }
+
+  /**
+   * Apply wizard-only product meta defaults and normalizations.
+   *
+   * @param int $product_id Product ID.
+   * @return void
+   */
+  private static function apply_wizard_product_meta_defaults( $product_id ) {
+    $active_wizard_step = filter_input( INPUT_POST, 'ddb_active_wizard_step', FILTER_DEFAULT );
+    if ( ! is_string( $active_wizard_step ) || '' === $active_wizard_step ) {
+      return;
+    }
+
+
+    $value_price = get_post_meta( $product_id, 'value-price', true );
+    if ( ! is_string( $value_price ) ) {
+      return;
+    }
+
+    $value_price = trim( $value_price );
+    if ( '' === $value_price ) {
+      return;
+    }
+
+    if ( false === strpos( $value_price, '$' ) && false === stripos( $value_price, 'USD' ) ) {
+      update_post_meta( $product_id, 'value-price', '$' . $value_price );
+    }
+  }
+
+  /**
+   * Process delete-product POST for a developer-owned unpublished product.
+   *
+   * @param WP_Term $developer_term Current developer taxonomy term.
+   * @return string HTML notice (escaped).
+   */
+  private static function handle_developer_delete_product_submission( $developer_term ) {
+    if ( ! isset( $_POST['ddb_create_product_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ddb_create_product_nonce'] ) ), self::NONCE_ACTION_EDIT_PRODUCT ) ) {
+      return self::notice_error_html( esc_html__( 'Security check failed. Please try again.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $product_id = absint( filter_input( INPUT_POST, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+    if ( ! $product_id ) {
+      return self::notice_error_html( esc_html__( 'Invalid product ID.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $developer_user_id = (int) get_term_meta( (int) $developer_term->term_id, 'user_account', true );
+    if ( ! self::is_product_from_developer( $product_id, $developer_user_id ) ) {
+      return self::notice_error_html( esc_html__( 'You are not allowed to delete this product.', DDB_TEXT_DOMAIN ) );
+    }
+
+    if ( 'publish' === get_post_status( $product_id ) ) {
+      return self::notice_error_html( esc_html__( 'Published products cannot be deleted from the developer dashboard.', DDB_TEXT_DOMAIN ) );
+    }
+
+    if ( function_exists( 'wc_get_product' ) ) {
+      $wc_product = wc_get_product( $product_id );
+      if ( $wc_product ) {
+        $wc_product->delete( true );
+      } else {
+        wp_delete_post( $product_id, true );
+      }
+    } else {
+      wp_delete_post( $product_id, true );
+    }
+
+    if ( get_post( $product_id ) ) {
+      return self::notice_error_html( esc_html__( 'Could not delete the product. Please try again.', DDB_TEXT_DOMAIN ) );
+    }
+
+    self::$product_deleted_this_request = true;
+
+    return self::notice_success_html_with_products_link( esc_html__( 'Product deleted.', DDB_TEXT_DOMAIN ) );
+  }
+
+  /**
+   * Process license-keys POST for a developer-owned product.
+   *
+   * @param WP_Term $developer_term Current developer taxonomy term.
+   * @return string HTML notice (escaped).
+   */
+  private static function handle_developer_product_license_submission( $developer_term ) {
+    if ( ! isset( $_POST['ddb_edit_license_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['ddb_edit_license_nonce'] ) ), self::NONCE_ACTION_EDIT_LICENSE ) ) {
+      return ''; //self::notice_error_html( esc_html__( 'Security check failed. Please try again.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $product_id = absint( filter_input( INPUT_POST, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+    if ( ! $product_id ) {
+      return self::notice_error_html( esc_html__( 'Invalid product ID.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $developer_user_id = (int) get_term_meta( (int) $developer_term->term_id, 'user_account', true );
+    if ( ! self::is_product_from_developer( $product_id, $developer_user_id ) ) {
+      return self::notice_error_html( esc_html__( 'You are not allowed to edit licenses for this product.', DDB_TEXT_DOMAIN ) );
+    }
+
+    $raw = isset( $_POST['ddb_product_license_keys'] ) ? wp_unslash( $_POST['ddb_product_license_keys'] ) : '';
+    if ( ! is_string( $raw ) ) {
+      $raw = '';
+    }
+
+    $result = Ddb_License_Manager::sync_draft_licenses_from_text( $product_id, $raw, $developer_user_id );
+    if ( is_wp_error( $result ) ) {
+      return self::notice_error_html( esc_html( $result->get_error_message() ) );
+    }
+    elseif ( intval( $result ) > 0) {
+
+      if ( intval( $result ) == 1 ) {
+        $message = esc_html__( 'License keys are updated, but one key was skipped as invalid.', DDB_TEXT_DOMAIN );
+      }
+      else {
+        $message = 'License keys are updated, but ' . intval( $result ) . ' keys were skipped as invalid.';
+      }
+
+      return self::notice_success_html( $message );
+    }
+
+    return ''; // no message indicates success, no need to print anything
+  }
+
+  /**
+   * @param array{
+   *   title: string,
+   *   short_description: string,
+   *   slug: string,
+   *   regular_price: string,
+   *   meta: array<string, string|array>
+   * }         $form_data      Sanitized output of Ddb_Product_Form::collect_product_form_data_from_request().
+   * @param WP_Term $developer_term Assigned developer term.
+   * @return int|\WP_Error|false Product ID on success.
+   */
+  private static function insert_draft_product_for_developer( array $form_data, $developer_term ) {
+    $title           = $form_data['title'] ?? '';
+    $short           = $form_data['short_description'] ?? '';
+    $slug            = $form_data['slug'] ?? '';
+    $regular_price   = isset( $form_data['regular_price'] ) ? (string) $form_data['regular_price'] : '';
+    $meta            = isset( $form_data['meta'] ) && is_array( $form_data['meta'] ) ? $form_data['meta'] : array();
+
+    if ( class_exists( 'WC_Product_Simple' ) ) {
+      try {
+        $product = new WC_Product_Simple();
+        $product->set_name( $title );
+        $product->set_short_description( $short );
+        if ( '' !== $slug ) {
+          $product->set_slug( $slug );
+        }
+        $product->set_regular_price( $regular_price );
+        $product->set_status( 'draft' );
+        $product_id = $product->save();
+      } catch ( Exception $e ) {
+        return new WP_Error( 'ddb_wc_product', __( 'Could not save the product. Code 25', DDB_TEXT_DOMAIN ) );
+      }
+      if ( ! $product_id ) {
+        return new WP_Error( 'ddb_wc_product', __( 'Could not save the product. Code 26', DDB_TEXT_DOMAIN ) );
+      }
+    } else {
+      return new WP_Error( 'ddb_wc_product', __( 'Could not save the product. Code 27', DDB_TEXT_DOMAIN ) );
+    }
+
+    if ( (int) $product_id ) {
+      $assigned = wp_set_object_terms( (int) $product_id, array( (int) $developer_term->term_id ), 'developer' );
+      if ( is_wp_error( $assigned ) ) {
+        wp_delete_post( (int) $product_id, true );
+        return $assigned;
+      }
+      Ddb_Product_Form::persist_product_meta( (int) $product_id, $meta );
+
+      Ddb_Product_Form::apply_product_taxonomy_fields_from_request( (int) $product_id );
+
+      $upload_result = Ddb_Product_Form::process_product_image_uploads( (int) $product_id );
+      if ( is_wp_error( $upload_result ) ) {
+        return $upload_result;
+      }
+    }
+
+    return (int) $product_id;
+  }
+
+  /**
+   * @param string $heading Section title.
+   * @param array  $posts   List of WP_Post (product).
+   * @param bool   $as_public_links When true, published items link to the storefront URL.
+   * @return string HTML
+   */
+  private static function render_developer_product_list_section( $heading, array $posts, $as_public_links ) {
+    $html = '<section class="ddb-product-list-section"><h4>' . esc_html( $heading ) . '</h4>';
+    if ( empty( $posts ) ) {
+      $html .= '<p class="ddb-product-list-empty">' . esc_html__( 'No products in this list.', DDB_TEXT_DOMAIN ) . '</p>';
+    } else {
+      $html .= '<div class="ddb-product-table-wrapper"><table class="ddb-product-table products-table"><thead><tr>';
+      $html .= '<th scope="col" class="ddb-product-table__col-title">' . esc_html__( 'Product title', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-price">' . esc_html__( 'Product price', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-licenses">' . esc_html__( 'Available license keys', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-deal">' . esc_html__( 'Deal product', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-action">' . esc_html__( 'Actions', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '</tr></thead><tbody>';
+      foreach ( $posts as $post ) {
+        $product_id = (int) $post->ID;
+        $is_deal_product = Ddb_Product_Wizard::is_deal_product( $product_id );
+        $wizard_edit_url = add_query_arg(
+          array(
+            'section'    => 'product-wizard',
+            'product_id' => $product_id,
+          ),
+          ''
+        );
+        $html      .= '<tr class="ddb-product-table__row ddb-product-table__row--' . esc_attr( $post->post_status ) . '">';
+        $html      .= '<td class="ddb-product-table__title">';
+        if ( $as_public_links && 'publish' === $post->post_status ) {
+          $html .= '<a href="' . esc_url( get_permalink( $post ) ) . '">' . esc_html( get_the_title( $post ) ) . '</a>';
+        } else {
+          $html .= '<span class="ddb-product-table__title-text">' . esc_html( get_the_title( $post ) ) . '</span>';
+          $html .= ' <span class="ddb-product-table__status">(' . esc_html( self::get_product_status_label( $post->post_status ) ) . ')</span>';
+        }
+        $html .= '</td>';
+        $html .= '<td class="ddb-product-table__price">' . self::get_developer_dashboard_product_price_html( $product_id ) . '</td>';
+        $available_licenses = Ddb_License_Manager::count_licenses( $product_id, 'available' );
+        $html              .= '<td class="ddb-product-table__licenses">' . esc_html( (string) $available_licenses ) . '</td>';
+        $html           .= '<td class="ddb-product-table__deal">' . ( $is_deal_product ? '+' : '' ) . '</td>';
+        $html           .= '<td class="ddb-product-table__action">';
+        if ( ! $is_deal_product ) {
+          $html           .= '<a class="button ddb-button-edit-wizard" href="' . esc_url( $wizard_edit_url ) . '">' . esc_html__( 'Edit product', DDB_TEXT_DOMAIN ) . '</a>';
+        }
+        $html           .= '</td>';
+        $html           .= '</tr>';
+      }
+      $html .= '</tbody></table></div>';
+    }
+    $html .= '</section>';
+    return $html;
+  }
+
+  /**
+   * Render unpublished products with edit action.
+   *
+   * @param string $heading Section title.
+   * @param array  $posts   List of WP_Post (product).
+   * @return string HTML
+   */
+  private static function render_developer_unpublished_product_list( $heading, array $posts ) {
+    $html = '<section class="ddb-product-list-section"><h4>' . esc_html( $heading ) . '</h4>';
+    if ( empty( $posts ) ) {
+      $html .= '<p class="ddb-product-list-empty">' . esc_html__( 'No products in this list.', DDB_TEXT_DOMAIN ) . '</p>';
+    } else {
+      $html .= '<div class="ddb-product-table-wrapper"><table class="ddb-product-table products-table"><thead><tr>';
+      $html .= '<th scope="col" class="ddb-product-table__col-title">' . esc_html__( 'Product title', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-status">' . esc_html__( 'Status', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-licenses">' . esc_html__( 'Draft keys', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-licenses">' . esc_html__( 'Available keys', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '<th scope="col" class="ddb-product-table__col-action">' . esc_html__( 'Actions', DDB_TEXT_DOMAIN ) . '</th>';
+      $html .= '</tr></thead><tbody>';
+      foreach ( $posts as $post ) {
+        $product_id = (int) $post->ID;
+        $is_deal_product = Ddb_Product_Wizard::is_deal_product( $product_id );
+        $wizard_edit_url = add_query_arg(
+          array(
+            'section'    => 'product-wizard',
+            'product_id' => $product_id,
+          ),
+          ''
+        );
+
+        $licenses_url   = add_query_arg(
+          array(
+            'section'    => 'edit-product',
+            'product_id' => $product_id,
+            'ddb_tab'    => 'license-keys',
+          ),
+          ''
+        );
+
+        $licenses_count = Ddb_License_Manager::count_licenses( $product_id, 'draft' );
+        $available_licenses = Ddb_License_Manager::count_licenses( $product_id, 'available' );
+
+        $title_text   = get_the_title( $post );
+        $preview_link = get_preview_post_link( $post );
+        $preview_url  = ( is_string( $preview_link ) && '' !== $preview_link ) ? $preview_link : '';
+        $title_cell   = ! $is_deal_product
+          ? '<a class="ddb-product-table__title-link" href="' . esc_url( $wizard_edit_url ) . '">' . esc_html( $title_text ) . '</a>'
+          : '<span class="ddb-product-table__title-text">' . esc_html( $title_text ) . '</span>';
+        $preview_target_url = '' !== $preview_url ? $preview_url : ( ! $is_deal_product ? $wizard_edit_url : '' );
+
+        $html      .= '<tr class="ddb-product-table__row ddb-product-table__row--' . esc_attr( $post->post_status ) . '">';
+        $html      .= '<td class="ddb-product-table__title">' . $title_cell . '</td>';
+        $html      .= '<td class="ddb-product-table__status">' . esc_html( self::get_unpublished_product_status_label( $post->post_status ) ) . '</td>';
+        $html      .= '<td class="ddb-product-table__licenses">' . esc_html( (string) $licenses_count ) . '</td>';
+        $html      .= '<td class="ddb-product-table__licenses">' . esc_html( (string) $available_licenses ) . '</td>';
+        $html .= '<td class="ddb-product-table__action">';
+        if ( ! $is_deal_product ) {
+          $html .= '<a class="button ddb-button-edit-wizard" href="' . esc_url( $wizard_edit_url ) . '">' . esc_html__( 'Edit product', DDB_TEXT_DOMAIN ) . '</a>';
+        }
+        if ( '' !== $preview_target_url ) {
+          $html .= '<a class="button ddb-button-edit-draft" href="' . esc_url( $preview_target_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Preview on website', DDB_TEXT_DOMAIN ) . '</a>';
+        }
+        $html .= '<a class="button ddb-button-edit-licenses" href="' . esc_url( $licenses_url ) . '">' . esc_html__( 'License keys', DDB_TEXT_DOMAIN ) . '</a>';
+        $html .= '</td>';
+        $html .= '</tr>';
+      }
+      $html .= '</tbody></table></div>';
+    }
+    $html .= '</section>';
+    return $html;
+  }
+
+  /**
+   * @param string $status Raw post status slug.
+   * @return string Human-readable label for unpublished products.
+   */
+  private static function get_unpublished_product_status_label( $status ) {
+    if ( 'draft' === $status ) {
+      return __( 'Draft', DDB_TEXT_DOMAIN );
+    }
+    if ( 'private' === $status ) {
+      return __( 'In Review', DDB_TEXT_DOMAIN );
+    }
+    return __( 'In Review', DDB_TEXT_DOMAIN );
+  }
+
+  /**
+   * Formatted product price for the developer products table.
+   *
+   * @param int $product_id Product post ID.
+   * @return string HTML (escaped where plain text).
+   */
+  private static function get_developer_dashboard_product_price_html( $product_id ) {
+    if ( function_exists( 'wc_get_product' ) ) {
+      $wc_product = wc_get_product( $product_id );
+      if ( $wc_product ) {
+        return wp_kses_post( $wc_product->get_price_html() );
+      }
+    }
+    $price = get_post_meta( $product_id, '_price', true );
+    if ( '' !== $price && false !== $price && function_exists( 'wc_price' ) ) {
+      return wp_kses_post( wc_price( $price ) );
+    }
+    return esc_html__( 'N/A', DDB_TEXT_DOMAIN );
+  }
+
+  /**
+   * @param string $status Raw post status slug.
+   * @return string Human-readable label.
+   */
+  private static function get_product_status_label( $status ) {
+    $object = get_post_status_object( $status );
+    if ( $object && ! empty( $object->label ) ) {
+      return $object->label;
+    }
+    return $status;
+  }
+
+  /**
+   * Wraps escaped text in the standard dashboard error notice markup.
+   *
+   * @param string $message Escaped HTML-safe message body.
+   * @return string
+   */
+  public static function notice_error_html( $message ) {
+    return '<p class="ddb-notice ddb-notice--error">' . $message . '</p>';
+  }
+
+  /**
+   * Wraps escaped text in the standard dashboard success notice markup.
+   *
+   * @param string $message Escaped HTML-safe message body.
+   * @return string
+   */
+  private static function notice_success_html( $message ) {
+    return '<p class="ddb-notice ddb-notice--success">' . $message . '</p>';
+  }
+
+  /**
+   * Success notice with a trailing link to the developer products list.
+   *
+   * @param string $leading_message Escaped translated leading sentence.
+   * @return string
+   */
+  private static function notice_success_html_with_products_link( $leading_message, $product_id = 0 ) {
+    $products_url = esc_url( remove_query_arg( 'product_id', add_query_arg( 'section', 'products' ) ) );
+    $message      = $leading_message . ' <a href="' . $products_url . '">' . esc_html__( 'View your products', DDB_TEXT_DOMAIN ) . '</a>.';
+    $product_id   = absint( $product_id );
+
+    if ( $product_id > 0 ) {
+      $product_post = get_post( $product_id );
+      if ( $product_post && 'product' === $product_post->post_type ) {
+        $preview_link = get_preview_post_link( $product_post );
+        if ( ! is_string( $preview_link ) || '' === $preview_link ) {
+          $preview_link = get_permalink( $product_id );
+        }
+
+        if ( is_string( $preview_link ) && '' !== $preview_link ) {
+          $message .= ' <a href="' . esc_url( $preview_link ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Show product preview on website', DDB_TEXT_DOMAIN ) . '</a>.';
+        }
+      }
+    }
+
+    return self::notice_success_html( $message );
+  }
+
+  /**
+   * Checks whether a product belongs to the developer term linked to a user.
+   *
+   * @param int $product_id Product post ID.
+   * @param int $developer_user_id Developer user ID.
+   * @return bool
+   */
+  public static function is_product_from_developer( $product_id, $developer_user_id ) {
+    $product_id        = absint( $product_id );
+    $developer_user_id = absint( $developer_user_id );
+
+    if ( ! $product_id || ! $developer_user_id ) {
+      return false;
+    }
+
+    $product_post = get_post( $product_id );
+    if ( ! $product_post || 'product' !== $product_post->post_type ) {
+      return false;
+    }
+
+    $developer_term = self::find_developer_term_by_user_id( $developer_user_id );
+    if ( ! is_object( $developer_term ) || ! is_a( $developer_term, 'WP_Term' ) ) {
+      return false;
+    }
+
+    return has_term( (int) $developer_term->term_id, 'developer', $product_id );
+  }
+
+  /**
+   * Handle create/edit product and license form submissions from the dashboard.
+   *
+   * @param string|false|null $action Value of the submit button (see BUTTON_SUMBIT).
+   * @return string|null Notice HTML if this was a product-related action; null otherwise.
+   */
+  private static function do_product_action( $action ) {
+
+    $developer_term = self::find_current_developer_term();
+
+    if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term' ) ) {
+      if ( self::ACTION_EDIT_DEVELOPER_PRODUCT === $action ) {
+        $notice_html = self::handle_developer_edit_product_submission( $developer_term );
+      } elseif ( self::ACTION_DELETE_DEVELOPER_PRODUCT === $action ) {
+        $notice_html = self::handle_developer_delete_product_submission( $developer_term );
+      } else {
+        $notice_html = self::handle_developer_create_product_submission( $developer_term );
+      }
+    } else {
+      $notice_html = self::notice_error_html( esc_html__( 'Not authorized', DDB_TEXT_DOMAIN ) );
+    }
+
+    if ( is_int( $notice_html ) && $notice_html > 0 ) {
+      self::$draft_product_created_this_request = true;
+      $notice_html                              = self::notice_success_html_with_products_link( esc_html__( 'Draft product created.', DDB_TEXT_DOMAIN ) );
+      self::$product_form_notice_html           = $notice_html;
+      self::$product_form_repopulate_values     = false;
+    } else {
+      self::$product_form_notice_html       = $notice_html;
+      self::$product_form_repopulate_values = ( strpos( (string) $notice_html, 'ddb-notice--success' ) === false );
+    }
+
+    return $notice_html;
+  }
+
+  public static function do_frontend_action() {
+
     $out = '';
-    
+
     $action = filter_input( INPUT_POST, self::BUTTON_SUMBIT );
+
+    self::$product_form_notice_html           = '';
+    self::$product_form_repopulate_values     = false;
+    self::$product_deleted_this_request       = false;
+    self::$draft_product_created_this_request = false;
+
+    $product_actions = array(
+      self::ACTION_CREATE_DEVELOPER_PRODUCT,
+      self::ACTION_EDIT_DEVELOPER_PRODUCT,
+      self::ACTION_DELETE_DEVELOPER_PRODUCT,
+      self::ACTION_EDIT_PRODUCT_LICENSE,
+    );
+
+    if ( in_array( $action, $product_actions, true ) ) {
       
+      $product_result = self::do_product_action( $action );
+      if ( null !== $product_result ) {
+        return $product_result;
+      }
+    }
+
     $developer_term = self::find_current_developer_term();
 
     if ( is_object( $developer_term ) && is_a( $developer_term, 'WP_Term') ) {
@@ -158,7 +894,7 @@ class Ddb_Frontend extends Ddb_Core {
       }
     }
     else {
-      $out = '<h3>Not Authorized to view this report</h3>';
+      $out = self::notice_error_html( esc_html__( 'Not Authorized to view this report', DDB_TEXT_DOMAIN ) );
     }
     
     return $out;
@@ -312,7 +1048,7 @@ class Ddb_Frontend extends Ddb_Core {
   /**
    * Displays developer orders completed since the start of payment cycle.
    * 
-   * New cycle starts 16th of each month.
+   * New cycle starts 20th of each month.
    * 
    * @param object $developer_term
    * @return string html
@@ -349,10 +1085,11 @@ class Ddb_Frontend extends Ddb_Core {
       
       $current_day = date('j');
 
-      // December 20th:  Current cycle is from December 16th to January 15th
-      // June 12th:  Current cycle is from May 16th to June 15th
+      // Expected output:
+      // December 25th:  Current cycle is from December 20th to January 19th
+      // June 12th:  Current cycle is from May 20th to June 19th
 
-      if ( $current_day > 15 ) {
+      if ( $current_day > 20 ) {
         $month1 = date('F'); // current month
         $month2 = date('F', time() - 30 * 86400); // next month
       }
@@ -361,7 +1098,7 @@ class Ddb_Frontend extends Ddb_Core {
         $month2 = date('F'); // current month
       }
         
-      $out .= "<small>Current payment cycle is from $month1 16th to $month2 15th</small>";
+      $out .= "<small>Current payment cycle is from $month1 20th to $month2 19th</small>";
     }
 
     return $out;
@@ -410,7 +1147,7 @@ class Ddb_Frontend extends Ddb_Core {
     ob_start();
     
     if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) ) {
-      $action_results = self::do_action(); // generate orders report if requested by a user
+      $action_results = self::do_frontend_action(); // generate orders report if requested by a user
     }
     else {
       $action_results = self::render_orders_in_current_cycle( $developer_term );
@@ -445,7 +1182,7 @@ class Ddb_Frontend extends Ddb_Core {
     ?> 
 
     <h3>Create a new report</h3>
-    <form method="POST" >
+    <form method="POST" enctype="multipart/form-data">
       
       <table class="ddb-report-form-table">
         <tbody>
@@ -480,7 +1217,7 @@ class Ddb_Frontend extends Ddb_Core {
     ob_start();
     
     if ( filter_input( INPUT_POST, self::BUTTON_SUMBIT ) ) {
-      $action_results = self::do_action(); // generate deals report if requested by a user
+      $action_results = self::do_frontend_action(); // generate deals report if requested by a user
     }
     else {
       $action_results = self::render_last_n_deal_orders( $developer_term );

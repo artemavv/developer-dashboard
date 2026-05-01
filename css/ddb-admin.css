@@ -1,7 +1,43 @@
+.ddb-image-field-current {
+  margin: 0.5em 0 0;
+}
+
+.ddb-image-field-current__preview {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.5em;
+}
+
+.ddb-image-field-preview {
+  display: block;
+  max-width: 120px;
+  max-height: 120px;
+  width: auto;
+  height: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+.ddb-required-asterisk {
+  color: #d63638;
+  font-weight: 600;
+  margin-left: 0.15em;
+}
 
 .ddb-table th, .ddb-table td {
   border: 1px solid #bbb;
   padding: 4px;
+}
+
+.ddb-approval-product-row.is-approved .ddb-approval-product-link {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.ddb-approve-publish-product-button {
+  margin-left: 6px;
 }
 
 .ddb-global-table {

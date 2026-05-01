@@ -4,6 +4,79 @@
 jQuery(document).ready(function(){
 
  jQuery('.ddb-autocomplete').select2();
+
+  function handleApprovalAction(buttonSelector, actionName, nonceValue, progressLabel, successLabel) {
+    jQuery(document).on('click', buttonSelector, function () {
+      var $button = jQuery(this);
+      var productId = $button.data('product-id');
+      var $row = $button.closest('.ddb-approval-product-row');
+      var $buttons = $row.find('.ddb-approve-product-button, .ddb-approve-publish-product-button, .ddb-move-product-to-draft-button');
+      var $draft = $row.find('.ddb-approval-product-draft');
+      var $status = $row.find('.ddb-approval-product-status');
+      var originalLabel = $button.text();
+
+      if (!productId || $button.prop('disabled')) {
+        return;
+      }
+
+      $buttons.prop('disabled', true);
+      $button.text(progressLabel);
+
+      jQuery.post(
+        scs_settings.ajax_url,
+        {
+          action: actionName,
+          product_id: productId,
+          nonce: nonceValue
+        }
+      ).done(function (response) {
+        if (!response || !response.success) {
+          $buttons.prop('disabled', false);
+          $button.text(originalLabel);
+          window.alert((response && response.data && response.data.message) ? response.data.message : 'Approval failed.');
+          return;
+        }
+
+        $row.addClass('is-approved');
+        $status.text('Approved');
+        if (actionName === 'ddb_approve_and_publish_product') {
+          $draft.text('No');
+        } else if (actionName === 'ddb_move_product_to_draft') {
+          $draft.text('Yes');
+        }
+        $buttons.not($button).remove();
+        $button.text(successLabel);
+      }).fail(function () {
+        $buttons.prop('disabled', false);
+        $button.text(originalLabel);
+        window.alert('Approval failed.');
+      });
+    });
+  }
+
+  handleApprovalAction(
+    '.ddb-approve-product-button',
+    'ddb_approve_pending_product',
+    scs_settings.approve_product_nonce,
+    'Approving...',
+    'Approved'
+  );
+
+  handleApprovalAction(
+    '.ddb-approve-publish-product-button',
+    'ddb_approve_and_publish_product',
+    scs_settings.approve_publish_nonce,
+    'Publishing...',
+    'Published'
+  );
+
+  handleApprovalAction(
+    '.ddb-move-product-to-draft-button',
+    'ddb_move_product_to_draft',
+    scs_settings.move_to_draft_nonce,
+    'Moving...',
+    'Moved to Draft'
+  );
 });
 
 

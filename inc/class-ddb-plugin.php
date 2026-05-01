@@ -25,6 +25,11 @@ class Ddb_Plugin extends Ddb_Core {
 	  
     if ( is_admin() ) {
       add_action('admin_enqueue_scripts', array($this, 'register_admin_styles_and_scripts') );
+      add_action( 'add_meta_boxes', array( $this, 'register_draft_licenses_metabox' ) );
+      add_action( 'save_post_product', array( $this, 'handle_draft_licenses_approval' ), 20, 3 );
+      add_action( 'wp_ajax_ddb_approve_pending_product', array( $this, 'ajax_approve_pending_product' ) );
+      add_action( 'wp_ajax_ddb_approve_and_publish_product', array( $this, 'ajax_approve_and_publish_product' ) );
+      add_action( 'wp_ajax_ddb_move_product_to_draft', array( $this, 'ajax_move_product_to_draft' ) );
     }
     
     add_action( 'wp_enqueue_scripts', array($this, 'register_frontend_scripts_when_shortcode_present') );
@@ -45,6 +50,8 @@ class Ddb_Plugin extends Ddb_Core {
     add_filter( 'wp_new_user_notification_email', array( 'Ddb_Plugin', 'attach_developer_taxonomy_to_new_user' ), 10, 3 );
     
     add_filter( 'the_title', array( 'Ddb_Plugin', 'custom_title_for_developer_dashboard' ), 10, 2 );
+
+		add_filter( 'map_meta_cap', array( 'Ddb_Plugin', 'map_meta_cap_draft_product_preview_for_developers' ), 10, 4 );
 		
 		// set up cron handling and events scheduling
 		$this->cron_generation = new Ddb_Cron_Generator();
@@ -67,18 +74,103 @@ class Ddb_Plugin extends Ddb_Core {
   
   
 	public function register_shortcodes() {		
-    add_shortcode( 'developer_dashboard', array( 'Ddb_Frontend', 'render_developer_dashboard' ) );
+    add_shortcode( 'developer_dashboard', array( 'Ddb_Plugin', 'render_developer_dashboard' ) );
     add_shortcode( 'display_content_for_developers_only', array( 'Ddb_Frontend', 'display_developer_content' ) );
     add_shortcode( 'display_content_for_affiliates_only', array( 'Ddb_Frontend', 'display_affiliate_content' ) );
+	}
+
+	/**
+	 * Handler for "developer_dashboard" shortcode: ?section=orders|products|product-wizard|product-licenses.
+	 *
+	 * @param array|string $atts Shortcode attributes.
+	 * @param string       $content Enclosed content (unused).
+	 * @param string       $tag Shortcode name.
+	 * @return string HTML.
+	 */
+	public static function render_developer_dashboard( $atts = array(), $content = '', $tag = '' ) {
+		if ( ! is_array( $atts ) ) {
+			$atts = array();
+		}
+
+		$section_raw = isset( $_GET['section'] ) ? sanitize_key( wp_unslash( $_GET['section'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+    $allowed_sections = array( 'orders', 'products', 'create-product', 'product-wizard', 'edit-product', 'product-licenses' );
+
+		$section     = in_array( $section_raw, $allowed_sections, true ) ? $section_raw : 'orders';
+
+		$url_orders   = esc_url( remove_query_arg( 'product_id', add_query_arg( 'section', 'orders' ) ) );
+		$url_products = esc_url( remove_query_arg( 'product_id', add_query_arg( 'section', 'products' ) ) );
+
+		if ( in_array( $section, array( 'create-product', 'product-wizard', 'edit-product', 'product-licenses' ), true ) ) {
+			Ddb_Frontend::do_frontend_action();
+		}
+
+		if ( 'edit-product' === $section && Ddb_Frontend::product_was_deleted_this_request() ) {
+			$section = 'products';
+		}
+
+		if ( 'products' === $section ) {
+			$panel_html = Ddb_Frontend::render_developer_products_dashboard( $atts );
+		}
+    elseif ( 'create-product' === $section ) {
+			if ( Ddb_Frontend::draft_product_created_this_request() ) {
+				$panel_html = '<div id="developer-dashboard" class="ddb-developer-products ddb-developer-create-product ddb-product-wizard">' . Ddb_Frontend::get_product_form_notice_html() . '</div>';
+			} else {
+				$panel_html = Ddb_Product_Wizard::render_developer_product_wizard();
+			}
+    }
+    elseif ( 'product-wizard' === $section ) {
+			if ( Ddb_Frontend::draft_product_created_this_request() ) {
+				$panel_html = '<div id="developer-dashboard" class="ddb-developer-products ddb-developer-create-product ddb-product-wizard">' . Ddb_Frontend::get_product_form_notice_html() . '</div>';
+			} else {
+				$product_id = absint( filter_input( INPUT_GET, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+				$panel_html = Ddb_Product_Wizard::render_developer_product_wizard( $product_id );
+			}
+		}
+    elseif ( 'edit-product' === $section ) {
+      $product_id = absint( filter_input( INPUT_GET, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+			$panel_html = Ddb_Product_Wizard::render_developer_product_wizard( $product_id );
+		}
+    elseif ( 'product-licenses' === $section ) {
+      $product_id = absint( filter_input( INPUT_GET, 'product_id', FILTER_SANITIZE_NUMBER_INT ) );
+			$panel_html = Ddb_Product_Form::render_developer_product_licenses( $product_id );
+		}
+    else {
+			$panel_html = Ddb_Frontend::render_developer_orders_dashboard( $atts );
+		}
+
+		$products_tab_active = in_array( $section, array( 'products', 'create-product', 'product-wizard', 'edit-product', 'product-licenses' ), true );
+
+		ob_start();
+		?>
+		<div class="ddb-developer-dashboard">
+			<nav class="ddb-tab-nav" aria-label="<?php esc_attr_e( 'Developer dashboard sections', DDB_TEXT_DOMAIN ); ?>">
+				<a class="ddb-tab-link<?php echo 'orders' === $section ? ' is-active' : ''; ?>" href="<?php echo $url_orders; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>"<?php echo 'orders' === $section ? ' aria-current="page"' : ''; ?>><?php esc_html_e( 'Your Orders', DDB_TEXT_DOMAIN ); ?></a>
+				<a class="ddb-tab-link<?php echo $products_tab_active ? ' is-active' : ''; ?>" href="<?php echo $url_products; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>"<?php echo $products_tab_active ? ' aria-current="page"' : ''; ?>><?php esc_html_e( 'Your Products', DDB_TEXT_DOMAIN ); ?></a>
+			</nav>
+
+			<div>
+        <?php echo $panel_html; ?>
+      </div>
+			
+		</div>
+		<?php
+		return (string) ob_get_clean();
 	}
   
   public function register_admin_styles_and_scripts() {
     $file_src = plugins_url( 'css/ddb-admin.css', $this->plugin_root );
-    wp_enqueue_style( 'ddb-admin', $file_src, array(), DDB_VERSION );
+    $style_path = plugin_dir_path( $this->plugin_root ) . 'css/ddb-admin.css';
+    $style_ver  = file_exists( $style_path ) ? (string) filemtime( $style_path ) : DDB_VERSION;
+    wp_enqueue_style( 'ddb-admin', $file_src, array(), $style_ver );
     
-    wp_enqueue_script( 'ddb-admin-js', plugins_url('/js/ddb-admin.js', $this->plugin_root), array( 'jquery' ), DDB_VERSION, true );
+    $script_path = plugin_dir_path( $this->plugin_root ) . 'js/ddb-admin.js';
+    $script_ver  = file_exists( $script_path ) ? (string) filemtime( $script_path ) : DDB_VERSION;
+    wp_enqueue_script( 'ddb-admin-js', plugins_url('/js/ddb-admin.js', $this->plugin_root), array( 'jquery' ), $script_ver, true );
     wp_localize_script( 'ddb-admin-js', 'scs_settings', array(
-      'ajax_url'			=> admin_url( 'admin-ajax.php' ),
+      'ajax_url'               => admin_url( 'admin-ajax.php' ),
+      'approve_product_nonce' => wp_create_nonce( 'ddb_approve_pending_product' ),
+      'approve_publish_nonce' => wp_create_nonce( 'ddb_approve_and_publish_product' ),
+      'move_to_draft_nonce'   => wp_create_nonce( 'ddb_move_product_to_draft' ),
     ) );
   }
   
@@ -86,10 +178,115 @@ class Ddb_Plugin extends Ddb_Core {
     global $post;
     
     if ( is_a( $post, 'WP_Post' ) && has_shortcode( $post->post_content, 'developer_dashboard') ) {
-      $file_src = plugins_url( 'css/ddb-front.css', $this->plugin_root );
+      wp_enqueue_editor();
+
+      $file_src = plugins_url( 'css/ddb-front-2026-04-25.css', $this->plugin_root );
       wp_enqueue_style( 'ddb-front', $file_src, array(), DDB_VERSION );
     }
   }
+
+	/**
+	 * Register a metabox on WooCommerce product edit screen.
+	 *
+	 * Shows draft-only license rows from wc_product_licences table.
+	 */
+	public function register_draft_licenses_metabox() {
+		add_meta_box(
+			'ddb-draft-licenses',
+			__( 'Draft License Code(s)', DDB_TEXT_DOMAIN ),
+			array( $this, 'render_draft_licenses_metabox' ),
+			'product',
+			'advanced'
+		);
+	}
+
+	/**
+	 * Render product metabox with draft licenses only.
+	 *
+	 * @param \WP_Post $post Product post object.
+	 * @return void
+	 */
+	public function render_draft_licenses_metabox( $post ) {
+		$product_id = isset( $post->ID ) ? (int) $post->ID : 0;
+		$licenses   = Ddb_License_Manager::get_licenses( $product_id, 'draft' );
+		?>
+		<table class="wp-list-table widefat fixed striped">
+			<thead>
+				<tr>
+					<th><?php esc_html_e( '#Number', DDB_TEXT_DOMAIN ); ?></th>
+					<th><?php esc_html_e( 'License Code/License Number', DDB_TEXT_DOMAIN ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+			<?php if ( ! empty( $licenses ) ) : ?>
+				<?php foreach ( $licenses as $index => $license ) : ?>
+				<tr>
+					<td><?php echo esc_html( (string) ( $index + 1 ) ); ?></td>
+					<td><?php echo esc_html( (string) $license->licence_code ); ?></td>
+				</tr>
+				<?php endforeach; ?>
+			<?php else : ?>
+				<tr>
+					<td colspan="2"><?php esc_html_e( 'No draft licenses available for this product.', DDB_TEXT_DOMAIN ); ?></td>
+				</tr>
+			<?php endif; ?>
+			</tbody>
+		</table>
+		<p style="margin-top:12px;">
+			<?php wp_nonce_field( 'ddb_approve_draft_licenses_' . $product_id, 'ddb_approve_draft_licenses_nonce' ); ?>
+			<button type="submit" class="button button-primary" name="ddb_approve_draft_licenses" value="1">
+				<?php esc_html_e( 'Approve these license keys', DDB_TEXT_DOMAIN ); ?>
+			</button>
+		</p>
+		<?php
+	}
+
+	/**
+	 * Approve draft licenses for a product when requested from metabox.
+	 *
+	 * @param int      $post_id Product post ID.
+	 * @param \WP_Post $post    Product post object.
+	 * @param bool     $update  Whether this is an existing post update.
+	 * @return void
+	 */
+	public function handle_draft_licenses_approval( $post_id, $post, $update ) {
+		if ( empty( $_POST['ddb_approve_draft_licenses'] ) ) {
+			return;
+		}
+
+		if ( ! isset( $_POST['ddb_approve_draft_licenses_nonce'] ) ) {
+			return;
+		}
+
+		$nonce = sanitize_text_field( wp_unslash( $_POST['ddb_approve_draft_licenses_nonce'] ) );
+		if ( ! wp_verify_nonce( $nonce, 'ddb_approve_draft_licenses_' . $post_id ) ) {
+			return;
+		}
+
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+			return;
+		}
+
+		if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$wpdb->update(
+			Ddb_License_Manager::table_name(),
+			array( 'licence_status' => 'available' ),
+			array(
+				'product_id'     => (int) $post_id,
+				'licence_status' => 'draft',
+			),
+			array( '%s' ),
+			array( '%d', '%s' )
+		);
+	}
 
   
   public static function custom_title_for_developer_dashboard( $post_title, $post_id ) {
@@ -142,8 +339,58 @@ class Ddb_Plugin extends Ddb_Core {
     
     return $email; // since this is a callback for a email filter, return unchanged email
   }
+
+	/**
+	 * Allow Product Developer users to satisfy `read_post` and `edit_post` for draft WooCommerce products
+	 * they own (developer taxonomy), so front-end preview works without `edit_product`.
+	 *
+	 * Core and WooCommerce both require `edit_post` for draft single products: `WP_Query` clears the post
+	 * when that check fails (404), and `WC_Product::is_visible_core()` hides non-draft products the same way.
+	 *
+	 * @param string[] $caps    Primitive caps required.
+	 * @param string   $cap     Meta capability name.
+	 * @param int      $user_id User ID.
+	 * @param array    $args    Extra args; index 0 is post ID for read_post / edit_post.
+	 * @return string[]
+	 */
+	public static function map_meta_cap_draft_product_preview_for_developers( $caps, $cap, $user_id, $args ) {
+		if ( ! in_array( $cap, array( 'read_post', 'edit_post' ), true ) || empty( $args[0] ) ) {
+			return $caps;
+		}
+
+		$post_id = (int) $args[0];
+		if ( $post_id <= 0 ) {
+			return $caps;
+		}
+
+		$post = get_post( $post_id );
+		if ( ! $post || 'product' !== $post->post_type || 'draft' !== $post->post_status ) {
+			return $caps;
+		}
+
+		$user = get_userdata( $user_id );
+		if ( ! $user || ! in_array( self::DEV_ROLE_NAME, (array) $user->roles, true ) ) {
+			return $caps;
+		}
+
+		if ( ! Ddb_Frontend::is_product_from_developer( $post_id, $user_id ) ) {
+			return $caps;
+		}
+
+		return array( 'read' );
+	}
     
 	public function add_page_to_menu() {
+		$review_products_count      = $this->get_pending_approval_products_count();
+		$review_products_menu_title = __( 'Review Developer Products', 'ddb' );
+
+		if ( $review_products_count > 0 ) {
+			$review_products_menu_title .= sprintf(
+				' <span class="update-plugins count-%1$d"><span class="plugin-count">%2$s</span></span>',
+				$review_products_count,
+				number_format_i18n( $review_products_count )
+			);
+		}
     
 		add_management_page(
 			__( 'Developer Payout Dashboard' ),          // page title.
@@ -152,7 +399,33 @@ class Ddb_Plugin extends Ddb_Core {
 			'ddb-settings',			                // menu slug.
 			array( $this, 'render_settings_page' )   // callback.
 		);
+
+		add_management_page(
+			__( 'Review Developer Products', 'ddb' ),     // page title.
+			$review_products_menu_title,                 // menu title.
+			'manage_options',
+			'ddb-review-developer-products',             // menu slug.
+			array( $this, 'render_approval_products_page' )
+		);
   }
+
+	public function get_pending_approval_products_count() {
+		$pending_products_query = new WP_Query( array(
+			'post_type'      => 'product',
+			'post_status'    => array( 'publish', 'pending', 'draft', 'future', 'private' ),
+			'posts_per_page' => 1,
+			'fields'         => 'ids',
+			'meta_query'     => array(
+				array(
+					'key'     => 'pending_apd_review',
+					'value'   => array( self::STATUS_DRAFT ),
+					'compare' => 'IN',
+				),
+			),
+		) );
+
+		return (int) $pending_products_query->found_posts;
+	}
   
   
   public function do_action() {
@@ -564,6 +837,14 @@ class Ddb_Plugin extends Ddb_Core {
     $this->render_settings_form();
     
   }
+
+	public function render_approval_products_page() {
+		?>
+		<div class="wrap">
+			<?php $this->render_approval_products_list(); ?>
+		</div>
+		<?php
+	}
   
   /**
    * Shows the form used to generate developer reports for the admin
@@ -844,13 +1125,193 @@ class Ddb_Plugin extends Ddb_Core {
           <?php endforeach; ?>
         </tbody>
       </table>
-      
+
       <p class="submit">  
        <input type="submit" id="ddb-button-save" name="ddb-button" class="button button-primary" value="<?php echo self::ACTION_SAVE_OPTIONS; ?>" />
       </p>
       
     </form>
     <?php 
+    
+  }
+
+  public function render_approval_products_list() {
+
+    $pending_products = get_posts( array(
+      'post_type'      => 'product',
+      'post_status'    => array( 'publish', 'pending', 'draft', 'future', 'private' ),
+      'posts_per_page' => -1,
+      'orderby'        => 'modified',
+      'order'          => 'DESC',
+      'meta_query'     => array(
+        array(
+          'key'     => 'pending_apd_review',
+          'value'   => array( self::STATUS_PUBLISHED_AND_EDITED, self::STATUS_DRAFT, self::STATUS_APPROVED ),
+          'compare' => 'IN',
+        ),
+      ),
+    ) );
+    ?>
+    <h2><?php esc_html_e( 'Products Pending APD Review', 'ddb' ); ?></h2>
+
+    <table class="ddb-table">
+      <thead>
+        <tr>
+          <th><?php esc_html_e( 'Developer', 'ddb' ); ?></th>
+          <th><?php esc_html_e( 'Product title', 'ddb' ); ?></th>
+          <th><?php esc_html_e( 'Draft?', 'ddb' ); ?></th>
+          <th><?php esc_html_e( 'Status', 'ddb' ); ?></th>
+          <th><?php esc_html_e( 'Last time updated', 'ddb' ); ?></th>
+          <th><?php esc_html_e( 'Actions', 'ddb' ); ?></th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php if ( ! empty( $pending_products ) ) : ?>
+          <?php foreach ( $pending_products as $pending_product ) : ?>
+            <?php
+              $developer_name  = '';
+              $developer_terms = get_the_terms( $pending_product->ID, 'developer' );
+              $review_status   = get_post_meta( $pending_product->ID, 'pending_apd_review', true );
+              $is_approved     = ( self::STATUS_APPROVED === (string) $review_status );
+              $is_published    = ( 'publish' === $pending_product->post_status );
+
+              if ( self::STATUS_APPROVED === (string) $review_status ) {
+                $status_label = 'Approved';
+              } elseif ( self::STATUS_PUBLISHED_AND_EDITED === (string) $review_status ) {
+                $status_label = 'Previously published, needs review';
+              } elseif ( self::STATUS_DRAFT === (string) $review_status ) {
+                $status_label = 'Not published yet';
+              }
+
+              if ( ! is_wp_error( $developer_terms ) && ! empty( $developer_terms ) ) {
+                $developer_names = wp_list_pluck( $developer_terms, 'name' );
+                $developer_name  = implode( ', ', $developer_names );
+              }
+            ?>
+            <tr class="ddb-approval-product-row" data-product-id="<?php echo esc_attr( (string) $pending_product->ID ); ?>">
+              <td><?php echo esc_html( $developer_name ); ?></td>
+              <td class="ddb-approval-product-title">
+                <a class="ddb-approval-product-link" target="_blank" href="<?php echo esc_url( get_edit_post_link( $pending_product->ID ) ); ?>">
+                  <?php echo esc_html( get_the_title( $pending_product ) ); ?>
+                </a>
+              </td>
+              <td class="ddb-approval-product-draft"><?php echo ( $pending_product->post_status === 'draft' ? 'Yes' : 'No' ); ?></td>
+              <td class="ddb-approval-product-status"><?php echo esc_html( $status_label ); ?></td>
+              <td><?php echo esc_html( get_the_modified_date( 'Y-m-d H:i', $pending_product ) ); ?></td>
+              <td>
+                <?php if ( $is_approved && $is_published ) : ?>
+                  <button type="button" class="button button-secondary ddb-move-product-to-draft-button" data-product-id="<?php echo esc_attr( (string) $pending_product->ID ); ?>">
+                    <?php esc_html_e( 'Move to Draft', 'ddb' ); ?>
+                  </button>
+                <?php else : ?>
+                  <?php if ( ! $is_approved ) : ?>
+                    <button type="button" class="button button-secondary ddb-approve-product-button" data-product-id="<?php echo esc_attr( (string) $pending_product->ID ); ?>">
+                      <?php esc_html_e( 'Approve', 'ddb' ); ?>
+                    </button>
+                  <?php endif; ?>
+                  <button type="button" class="button button-primary ddb-approve-publish-product-button" data-product-id="<?php echo esc_attr( (string) $pending_product->ID ); ?>">
+                    <?php esc_html_e( 'Approve and publish', 'ddb' ); ?>
+                  </button>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        <?php else : ?>
+          <tr>
+            <td colspan="6"><?php esc_html_e( 'No products are currently pending APD review.', 'ddb' ); ?></td>
+          </tr>
+        <?php endif; ?>
+      </tbody>
+    </table>
+    <?php
+  }
+
+  public function ajax_approve_pending_product() {
+
+    check_ajax_referer( 'ddb_approve_pending_product', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+      wp_send_json_error( array(
+        'message' => __( 'You are not allowed to approve products.', 'ddb' ),
+      ), 403 );
+    }
+
+    $product_id = absint( $_POST['product_id'] ?? 0 );
+    $product    = get_post( $product_id );
+
+    if ( ! $product || 'product' !== $product->post_type ) {
+      wp_send_json_error( array(
+        'message' => __( 'Invalid product.', 'ddb' ),
+      ), 400 );
+    }
+
+    update_post_meta( $product_id, 'pending_apd_review', self::STATUS_APPROVED );
+
+    wp_send_json_success( array(
+      'product_id' => $product_id,
+    ) );
+  }
+
+  public function ajax_approve_and_publish_product() {
+
+    check_ajax_referer( 'ddb_approve_and_publish_product', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+      wp_send_json_error( array(
+        'message' => __( 'You are not allowed to approve products.', 'ddb' ),
+      ), 403 );
+    }
+
+    $product_id = absint( $_POST['product_id'] ?? 0 );
+    $product    = get_post( $product_id );
+
+    if ( ! $product || 'product' !== $product->post_type ) {
+      wp_send_json_error( array(
+        'message' => __( 'Invalid product.', 'ddb' ),
+      ), 400 );
+    }
+
+    wp_update_post( array(
+      'ID'          => $product_id,
+      'post_status' => 'publish',
+    ) );
+
+    update_post_meta( $product_id, 'pending_apd_review', self::STATUS_APPROVED );
+
+    wp_send_json_success( array(
+      'product_id' => $product_id,
+    ) );
+  }
+
+  public function ajax_move_product_to_draft() {
+
+    check_ajax_referer( 'ddb_move_product_to_draft', 'nonce' );
+
+    if ( ! current_user_can( 'manage_options' ) ) {
+      wp_send_json_error( array(
+        'message' => __( 'You are not allowed to update products.', 'ddb' ),
+      ), 403 );
+    }
+
+    $product_id = absint( $_POST['product_id'] ?? 0 );
+    $product    = get_post( $product_id );
+
+    if ( ! $product || 'product' !== $product->post_type ) {
+      wp_send_json_error( array(
+        'message' => __( 'Invalid product.', 'ddb' ),
+      ), 400 );
+    }
+
+    wp_update_post( array(
+      'ID'          => $product_id,
+      'post_status' => 'draft',
+    ) );
+
+    update_post_meta( $product_id, 'pending_apd_review', self::STATUS_DRAFT );
+
+    wp_send_json_success( array(
+      'product_id' => $product_id,
+    ) );
   }
   
   public function render_payout_report_form() {
