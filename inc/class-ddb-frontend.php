@@ -598,6 +598,9 @@ class Ddb_Frontend extends Ddb_Core {
         if ( ! $is_deal_product ) {
           $html           .= '<a class="button ddb-button-edit-wizard" href="' . esc_url( $wizard_edit_url ) . '">' . esc_html__( 'Edit product', DDB_TEXT_DOMAIN ) . '</a>';
         }
+        else {
+          $html           .= '<a class="button ddb-button-disabled" disabled="disabled" href="#">Not editable</a>';
+        }
         $html           .= '</td>';
         $html           .= '</tr>';
       }

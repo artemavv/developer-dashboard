@@ -906,10 +906,16 @@ EOT;
 	 * @param array $value
 	 */
 	public static function make_number_field( $field, $value ) {
-		$class     = isset( $field['class'] ) ? esc_attr( $field['class'] ) : 'ddb-number-field';
-		$required  = ! empty( $field['required'] ) ? ' required' : '';
-		$out       = <<<EOT
-			<input type="number" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="{$class}"{$required}>
+		$class    = isset( $field['class'] ) ? esc_attr( $field['class'] ) : 'ddb-number-field';
+		$required = ! empty( $field['required'] ) ? ' required' : '';
+		$value    = ( false === $value || null === $value ) ? '' : esc_attr( (string) $value );
+
+		$step = isset( $field['step'] ) ? ' step="' . esc_attr( (string) $field['step'] ) . '"' : '';
+		$min  = isset( $field['min'] )  ? ' min="'  . esc_attr( (string) $field['min'] )  . '"' : '';
+		$max  = isset( $field['max'] )  ? ' max="'  . esc_attr( (string) $field['max'] )  . '"' : '';
+
+		$out = <<<EOT
+			<input type="number" id="ddb_{$field['id']}" name="{$field['name']}" value="{$value}" class="{$class}"{$min}{$max}{$step}{$required}>
 EOT;
 		return $out;
 	}

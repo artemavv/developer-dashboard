@@ -65,6 +65,10 @@ class Ddb_Product_Wizard extends Ddb_Product_Form {
 					'description' => 'Enter the regular product price in USD. It will be shown in the product top section under the product description, after "RETAIL PRICE" header.',
 				),
 				array(
+					'key'         => '_minumum_price',
+					'description' => 'Enter the base product price in USD. The base price is the minimum price that could be offered to customers if they are able to purchase the product with a discount (using their rewards points). For example, if the regular price is $100 and the base price is $25, the customer could purchase the product for $40 if they have 60 rewards points, or for $70 if they have only 30 rewards points. But they will not be able to purchase the product for less than $25.',
+				),
+				array(
 					'key'         => 'short_description',
 					'description' => 'Keep this short. Prefer 2 or 3 brief paragraphs, include a heading, and mention formats and compatibility.',
                     'color' => '#9141ac',
@@ -1080,7 +1084,7 @@ class Ddb_Product_Wizard extends Ddb_Product_Form {
 					$value = '';
 				}
 
-				$html .= '<input type="hidden" name="' . esc_attr( $name ) . '" value="' . esc_attr( (string) $value ) . '" />';
+				$html .= '<input type="hidden" class="ddb-wizard-hidden-field" name="' . esc_attr( $name ) . '" value="' . esc_attr( (string) $value ) . '" />';
 			}
 		}
 

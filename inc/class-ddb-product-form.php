@@ -384,7 +384,7 @@ APD Support.</p>'
 				if ( 'short_description' === $field_key ) {
 					// phpcs:ignore WordPress.Security.NonceVerification.Missing
 					$raw_short_description = isset( $_POST[ $name ] ) ? wp_unslash( $_POST[ $name ] ) : '';
-					$short_description     = is_string( $raw_short_description ) ? wp_kses_post( $raw_short_description ) : '';
+					$short_description     = is_string( $raw_short_description ) ? self::restrict_richtext_inline_styles( wp_kses_post( $raw_short_description ) ) : '';
 					continue;
 				}
 				if ( 'permalink_slug' === $field_key ) {
@@ -441,9 +441,9 @@ APD Support.</p>'
 					case 'textarea':
 						$meta[ $field_key ] = sanitize_textarea_field( $raw );
 						break;
-					case 'richtext':
-						$meta[ $field_key ] = is_string( $raw ) ? wp_kses_post( $raw ) : '';
-						break;
+				case 'richtext':
+					$meta[ $field_key ] = is_string( $raw ) ? self::restrict_richtext_inline_styles( wp_kses_post( $raw ) ) : '';
+					break;
 					case 'url':
 						$meta[ $field_key ] = esc_url_raw( $raw );
 						break;
@@ -483,6 +483,9 @@ APD Support.</p>'
 			}
 			update_post_meta( $product_id, $key, $value );
 		}
+
+		update_post_meta( $product_id, '_product_type_single', 'yes' );
+		update_post_meta( $product_id, '_product_big_deal', 'no' );
 	}
 
 	/**
@@ -616,8 +619,8 @@ APD Support.</p>'
 				switch ( $type ) {
 					case 'textarea':
 						return sanitize_textarea_field( $raw );
-					case 'richtext':
-						return is_string( $raw ) ? wp_kses_post( $raw ) : '';
+				case 'richtext':
+					return is_string( $raw ) ? self::restrict_richtext_inline_styles( wp_kses_post( $raw ) ) : '';
 					case 'url':
 						return esc_url_raw( $raw );
 					case 'number':
@@ -696,6 +699,47 @@ APD Support.</p>'
 			default:
 				return esc_attr( (string) $raw );
 		}
+	}
+
+	/**
+	 * Restrict inline CSS font-size and line-height in richtext HTML.
+	 *
+	 * Walks every style="…" attribute and enforces: font-size is always set to
+	 * exactly 16px; line-height px/unitless values are capped at 24.
+	 * Non-px units (em, rem, %, etc.) for line-height are left untouched.
+	 *
+	 * @param string $html Sanitized HTML content.
+	 * @return string
+	 */
+	protected static function restrict_richtext_inline_styles( string $html ): string {
+		$result = preg_replace_callback(
+			'/\bstyle\s*=\s*(["\'])(.+?)\1/si',
+			static function ( $matches ) {
+				$quote = $matches[1];
+				$style = $matches[2];
+
+				// Force font-size to exactly 16px regardless of the authored value.
+				$style = preg_replace(
+					'/\bfont-size\s*:\s*[\d.]+px\b/i',
+					'font-size: 16px',
+					$style
+				);
+
+				//  Force line-height to exactly 24px regardless of the authored value
+				$style = preg_replace_callback(
+					'/\bline-height\s*:\s*([\d.]+)(px)?(?![a-zA-Z%])/i',
+					static function ( $m ) {
+						return 'line-height: 24px';
+					},
+					$style
+				);
+
+				return 'style=' . $quote . $style . $quote;
+			},
+			$html
+		);
+
+		return is_string( $result ) ? $result : $html;
 	}
 
 	/**
